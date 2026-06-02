@@ -1,0 +1,14 @@
+# Remote Linux over SSH. Copy to inventory_ssh.yml and edit. Do not commit real values.
+all:
+  children:
+    linux:
+      hosts:
+        linux1:
+          ansible_host: 203.0.113.10              # <-- your Linux host IP/DNS
+          ansible_user: ec2-user                  # <-- remote user
+          ansible_connection: ssh
+          ansible_ssh_private_key_file: 'C:\Users\you\.ssh\your_key.pem'   # <-- key path
+          # Windows OpenSSH has no connection multiplexing; the connection plugin drops
+          # ControlMaster/ControlPersist automatically. StrictHostKeyChecking=no avoids the
+          # first-connection prompt (or set ANSIBLE_HOST_KEY_CHECKING=False).
+          ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
