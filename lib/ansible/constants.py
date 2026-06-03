@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 
 from string import ascii_letters, digits
@@ -21,6 +22,20 @@ config = ConfigManager()
 def set_constant(name, value, export=vars()):
     """ sets constants and returns resolved options dict """
     export[name] = value
+
+
+def _pathlist(home_path, *system_paths):
+    """Build a path-list config default (used by templated defaults in config/base.yml).
+
+    Joins the user/home path with any system-wide paths using the platform path separator
+    (``os.pathsep``). The system paths use the POSIX FHS layout (e.g. ``/usr/share/ansible``,
+    ``/etc/ansible``) and have no Windows equivalent, so they are omitted on Windows. On POSIX
+    the result is identical to the previously hard-coded ``:``-joined defaults.
+    """
+    paths = [home_path]
+    if os.name != 'nt':
+        paths.extend(system_paths)
+    return os.pathsep.join(paths)
 
 
 # CONSTANTS ### yes, actual ones

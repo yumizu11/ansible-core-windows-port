@@ -1419,7 +1419,9 @@ class ActionBase(ABC, _AnsiblePluginInfoMixin):
             display.debug("_low_level_execute_command(): using become for this command")
             cmd = self._connection.become.build_become_command(cmd, self._connection._shell)
 
-        if self._connection.allow_executable:
+        # Windows/PowerShell shells produce a complete command line (e.g. powershell.exe ...)
+        # and must not be wrapped in a POSIX `<shell> -c '...'` invocation.
+        if self._connection.allow_executable and not getattr(self._connection._shell, '_IS_WINDOWS', False):
             if executable is None:
                 executable = self._play_context.executable
             if executable:

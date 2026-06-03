@@ -29,14 +29,26 @@ import __main__
 import atexit
 import dataclasses as _dataclasses
 import errno
-import grp
-import fcntl
 import locale
 import os
-import pwd
 import platform
 import re
 import select
+
+try:
+    import grp
+except ImportError:
+    grp = None  # type: ignore[assignment]  # not available on non-POSIX platforms (e.g. Windows)
+
+try:
+    import pwd
+except ImportError:
+    pwd = None  # type: ignore[assignment]  # not available on non-POSIX platforms (e.g. Windows)
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore[assignment]  # not available on non-POSIX platforms (e.g. Windows)
 import selectors
 import shlex
 import shutil

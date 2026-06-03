@@ -321,7 +321,10 @@ class PluginLoader:
         self.package = package
         self.subdir = subdir
 
-        if aliases is not Sentinel:
+        # Only warn when a caller actually supplies aliases; an empty value is equivalent to omitting
+        # the argument and is used by internal deserialization (PluginLoader.__setstate__), which would
+        # otherwise emit a spurious warning for every loader under the spawn start method (e.g. Windows).
+        if aliases is not Sentinel and aliases:
             display.deprecated(
                 msg=f"Instantiating {self.type} PluginLoader with aliases is deprecated. {_ALIASES_MSG}",
                 version="2.25",

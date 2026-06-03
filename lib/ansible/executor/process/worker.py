@@ -105,13 +105,15 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
         """In child termination when notified by the parent"""
         signal.signal(signum, signal.SIG_DFL)
 
-        try:
-            os.killpg(self.pid, signum)
-            os.kill(self.pid, signum)
-        except OSError as e:
-            if e.errno != errno.ESRCH:
-                signame = signal.strsignal(signum)
-                display.error(f'Unable to send {signame} to child[{self.pid}]: {e}')
+        # Process-group signalling is POSIX-only; skip it where unavailable (e.g. Windows).
+        if hasattr(os, 'killpg'):
+            try:
+                os.killpg(self.pid, signum)
+                os.kill(self.pid, signum)
+            except OSError as e:
+                if e.errno != errno.ESRCH:
+                    signame = signal.strsignal(signum)
+                    display.error(f'Unable to send {signame} to child[{self.pid}]: {e}')
 
         # fallthrough, if we are still here, just die
         os._exit(1)
@@ -154,14 +156,19 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
         with stdio fds.
         """
         try:
-            if C.config.get_config_value('WORKER_SESSION_ISOLATION', variables=self._task_vars):
-                os.setsid()  # create a new session and process group for this worker (fully isolated from parent session resources, e.g., inherited TTY)
-            else:
-                os.setpgid(0, 0)  # isolation disabled, just make this worker a new process group leader for granular child process tracking
+            # Session/process-group isolation is POSIX-only; on platforms without it (e.g. Windows)
+            # spawned workers are already separate processes that don't share the parent's session/TTY.
+            if hasattr(os, 'setsid') and hasattr(os, 'setpgid'):
+                if C.config.get_config_value('WORKER_SESSION_ISOLATION', variables=self._task_vars):
+                    os.setsid()  # create a new session and process group for this worker (fully isolated from parent session resources, e.g., inherited TTY)
+                else:
+                    os.setpgid(0, 0)  # isolation disabled, just make this worker a new process group leader for granular child process tracking
 
             # Create new fds for stdin/stdout/stderr, but also capture python uses of sys.stdout/stderr
+            # O_NONBLOCK does not exist on all platforms (e.g. Windows); fall back to 0 there.
+            o_nonblock = getattr(os, 'O_NONBLOCK', 0)
             for fds, mode in (
-                    ((STDIN_FILENO,), os.O_RDWR | os.O_NONBLOCK),
+                    ((STDIN_FILENO,), os.O_RDWR | o_nonblock),
                     ((STDOUT_FILENO, STDERR_FILENO), os.O_WRONLY),
             ):
                 stdio = os.open(os.devnull, mode)
@@ -179,6 +186,27 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
             display.error(f'Could not detach from stdio: {e}')
             os._exit(1)
 
+    def _bootstrap_worker_environment(self) -> None:
+        """
+        Re-establish controller global state that a forked child inherits automatically
+        but a spawned child (e.g. on Windows, which lacks ``fork``) does not.
+
+        This is idempotent and a no-op under ``fork``, where this state is already present.
+        """
+        from ansible import context
+        from ansible.plugins.loader import init_plugin_loader
+        from ansible.utils.collection_loader import AnsibleCollectionConfig
+
+        if not context.CLIARGS:
+            context.CLIARGS = self._cliargs
+
+        # The Display singleton is recreated fresh in a spawned worker, so its verbosity defaults
+        # to 0 and -v/-vv/-vvv output from this worker would be suppressed; restore it from CLIARGS.
+        display.verbosity = context.CLIARGS.get('verbosity') or 0
+
+        if AnsibleCollectionConfig.collection_finder is None:
+            init_plugin_loader()
+
     def run(self) -> None:
         """
         Wrap _run() to ensure no possibility an errant exception can cause
@@ -189,6 +217,8 @@ class WorkerProcess(multiprocessing_context.Process):  # type: ignore[name-defin
         a try/except added in far-away code can cause a crashed child process
         to suddenly assume the role and prior state of its parent.
         """
+        # Re-establish controller globals not inherited by spawned workers (no-op under fork).
+        self._bootstrap_worker_environment()
         # Set the queue on Display so calls to Display.display are proxied over the queue
         display.set_queue(self._final_q)
         self._detach()

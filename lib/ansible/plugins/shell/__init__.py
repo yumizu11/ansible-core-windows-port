@@ -19,6 +19,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import os.path
+import posixpath
 import re
 import secrets
 import shlex
@@ -87,7 +88,10 @@ class ShellBase(AnsiblePlugin):
         return ' '.join(['%s=%s' % (k, self.quote(str(v))) for k, v in kwargs.items()])
 
     def join_path(self, *args):
-        return os.path.join(*args)
+        # Shell plugins build paths for the (POSIX) remote target, so always join with '/'
+        # regardless of the controller OS. os.path.join would use '\' on a Windows controller,
+        # corrupting remote paths. (The powershell shell overrides this with ntpath.)
+        return posixpath.join(*args)
 
     # some shells (eg, powershell) are snooty about filenames/extensions, this lets the shell plugin have a say
     def get_remote_filename(self, pathname):

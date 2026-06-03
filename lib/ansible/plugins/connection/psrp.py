@@ -335,6 +335,7 @@ from ansible._internal._powershell import _script
 from ansible.errors import AnsibleConnectionFailure, AnsibleError
 from ansible.errors import AnsibleFileNotFound
 from ansible.executor.powershell.module_manifest import _bootstrap_powershell_script
+from ansible.module_utils._internal._datatag import AnsibleTagHelper
 from ansible.module_utils.parsing.convert_bool import boolean
 from ansible.module_utils.common.text.converters import to_bytes, to_native, to_text
 from ansible.plugins.connection import ConnectionBase
@@ -669,6 +670,12 @@ class Connection(ConnectionBase):
         certificate_key_password = self.get_option('certificate_key_password')
         if certificate_key_password:
             self._psrp_conn_kwargs['certificate_key_password'] = certificate_key_password
+
+        # pypsrp's auth backends (notably the Windows SSPI path in pyspnego, which is Cython and
+        # rejects subclasses of builtin types) require plain native values, but config/inventory
+        # values arrive as ansible tagged strings (str subclasses). Convert to native types.
+        self._psrp_conn_kwargs = {k: AnsibleTagHelper.as_native_type(v) for k, v in self._psrp_conn_kwargs.items()}
+        self._psrp_runspace_kwargs = {k: AnsibleTagHelper.as_native_type(v) for k, v in self._psrp_runspace_kwargs.items()}
 
     def _exec_psrp_script(
         self,
