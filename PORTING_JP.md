@@ -237,11 +237,24 @@ raw モード＋非ブロッキング fd 読み取りを使っていました。
 ### M. 壊れたシンボリックリンク（Windows チェックアウトの副産物）
 
 シンボリックリンク非対応で Windows に展開すると、リンクはリンク先パスを書いたテキストファイルに
-なります。
+なります。ファイルの「中身」がリンク先文字列そのものになるため、実行時に問題を起こします。
 
-* `module_utils/ansible_release.py` はテキスト `../release.py` だった → 実体（`lib/ansible/release.py`
-  と同内容）に置換。実行に影響する `lib/` 内の壊れたシンボリックリンクはこれのみ。`bin/` と `test/`
-  には他にもあります（§5 / 公開タスク参照）。
+2種類あり、両方を検出・修正:
+
+* **親相対**（`../` 始まり）: 例 `module_utils/ansible_release.py` → `../release.py`。
+* **同ディレクトリ**（`../` 無しの sibling 名のみ。`../` だけ探すと見逃す）: 例
+  `modules/systemd.py` → `systemd_service.py`、および `plugins/test/*.yml` の jinja test エイリアス
+  ドキュメント15個（`change.yml` → `changed.yml`、`skip.yml` → `skipped.yml` …）。
+
+`systemd` の例が示唆的: コントローラが `modules/systemd.py` を読むと中身が `systemd_service.py`
+（`#!` 行なし）で、その play 実行時にのみ
+`module (ansible.legacy.systemd) is missing interpreter line` で失敗します。
+
+**修正:** 実行に影響する `lib/` 配下の壊れたシンボリックリンクはすべて**実体化**（リンク先の内容を
+コピー）。Windows チェックアウトは実行時にシンボリックリンクを辿れないためです。（`bin/` と多くの
+`test/` は実 git シンボリックリンク mode 120000 として保存 — Linux では問題なし。`bin/` は Windows 用
+`.cmd` ランチャも同梱。）検出時は `../foo` だけでなく、同ディレクトリの既存ファイルに解決される素の
+`sibling.py` も対象にすること。
 
 ---
 

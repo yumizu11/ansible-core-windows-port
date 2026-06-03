@@ -238,11 +238,24 @@ and already works on Windows. `Display.prompt_until` (used by the `pause` module
 ### M. Broken symlinks (Windows checkout artifact)
 
 When the repo is extracted on Windows without symlink support, symlinks become text files containing
-their target path.
+their target path. These bite at runtime because the file's "content" is just the link target string.
 
-* `module_utils/ansible_release.py` was the text `../release.py` → replaced with the real content
-  (it mirrors `lib/ansible/release.py`). This is the only broken symlink in `lib/` that affects
-  runtime; `bin/` and `test/` contain more (see §5 / publishing tasks).
+Two flavors, both found and fixed:
+
+* **Parent-relative** (target starts with `../`): e.g. `module_utils/ansible_release.py` → `../release.py`.
+* **Same-directory** (target is a bare sibling filename, *no* `../` — easy to miss when scanning only
+  for `../`): e.g. `modules/systemd.py` → `systemd_service.py`, and 15 jinja-test alias docs under
+  `plugins/test/*.yml` (`change.yml` → `changed.yml`, `skip.yml` → `skipped.yml`, …).
+
+The `systemd` case is instructive: the controller reads `modules/systemd.py`, gets the text
+`systemd_service.py` (no `#!` interpreter line), and fails with
+`module (ansible.legacy.systemd) is missing interpreter line` only when a play uses that module.
+
+**Fix:** all broken symlinks under `lib/` that affect runtime are **materialized** (the real target
+content is copied in), since a Windows checkout cannot follow symlinks at runtime. (`bin/` and many
+`test/` symlinks are instead stored as real git symlinks, mode 120000 — fine on Linux; `bin/` also
+ships `.cmd` launchers for Windows.) When detecting these, match both `../foo` *and* bare
+`sibling.py` whose content resolves to an existing file in the same directory.
 
 ---
 

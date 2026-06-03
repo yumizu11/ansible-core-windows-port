@@ -32,6 +32,8 @@ Provided to satisfy the GPL requirement to state the changes made to the license
 | `utils/collection_loader/_collection_finder.py` | `get_data` absolute-path check via `os.path.isabs` | D |
 | `module_utils/basic.py` | Guard `grp`/`pwd`/`fcntl` imports (imported on the controller via `DataLoader`) | A |
 | `module_utils/ansible_release.py` | Materialize broken symlink (was the text `../release.py`) | M |
+| `modules/systemd.py` | Materialize broken symlink (was the text `systemd_service.py`); otherwise `ansible.builtin.systemd` fails with "missing interpreter line" | M |
+| `plugins/test/*.yml` (15 files) | Materialize broken same-directory symlinks for jinja-test alias docs (`change.yml`→`changed.yml`, `skip.yml`→`skipped.yml`, …) | M |
 
 ## New files (this fork)
 
@@ -44,6 +46,8 @@ Provided to satisfy the GPL requirement to state the changes made to the license
 
 ## Not modified but relevant
 
-* `bin/*` and various `test/` paths are upstream **symlinks** that become plain text files on a
-  Windows checkout. Only `module_utils/ansible_release.py` is materialized here (it is required at
-  runtime); the rest are a packaging/distribution concern (see PORTING.md §5).
+* Upstream **symlinks** become plain text files on a Windows checkout. The runtime-affecting ones
+  under `lib/` are materialized (real content copied in): `module_utils/ansible_release.py`,
+  `modules/systemd.py`, and 15 `plugins/test/*.yml` alias docs. `bin/*` and many `test/` symlinks are
+  stored as real git symlinks (mode 120000) instead; `bin/` also ships `.cmd` launchers for Windows.
+  Remaining same-directory symlinks under `test/` (test-suite only) are not materialized.
