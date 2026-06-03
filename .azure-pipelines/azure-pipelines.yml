@@ -31,7 +31,7 @@ variables:
   - name: fetchDepth
     value: 500
   - name: defaultContainer
-    value: quay.io/ansible/azure-pipelines-test-container:8.0.0
+    value: quay.io/ansible/azure-pipelines-test-container:7.0.0
 
 pool: Standard
 
@@ -60,7 +60,6 @@ stages:
             - test: 3.12
             - test: 3.13
             - test: 3.14
-            - test: 3.15
   - stage: Windows
     dependsOn: []
     jobs:
@@ -69,6 +68,8 @@ stages:
           nameFormat: Server {0}
           testFormat: windows/{0}/1
           targets:
+            - name: 2016 WinRM HTTP WinPS
+              test: 2016/winrm/http/5.1
             - name: 2019 WinRM HTTPS WinPS
               test: 2019/winrm/https/5.1
             - name: 2022 WinRM HTTPS WinPS
@@ -130,16 +131,14 @@ stages:
           targets:
             - name: Alpine 3.23
               test: alpine/3.23
-            - name: Fedora 44
-              test: fedora/44
+            - name: Fedora 43
+              test: fedora/43
             - name: RHEL 9.7
               test: rhel/9.7
             - name: RHEL 10.1
               test: rhel/10.1
             - name: Ubuntu 24.04
               test: ubuntu/24.04
-            - name: Ubuntu 26.04
-              test: ubuntu/26.04
           groups:
             - 6
   - stage: Remote_Targeted
@@ -161,12 +160,12 @@ stages:
           targets:
             - name: Alpine 3.23
               test: alpine323
-            - name: Fedora 44
-              test: fedora44
+            - name: Fedora 43
+              test: fedora43
+            - name: Ubuntu 22.04
+              test: ubuntu2204
             - name: Ubuntu 24.04
               test: ubuntu2404
-            - name: Ubuntu 26.04
-              test: ubuntu2604
           groups:
             - 1
             - 2
@@ -176,12 +175,10 @@ stages:
           targets:
             - name: Alpine 3.23
               test: alpine323
-            - name: Fedora 44
-              test: fedora44
+            - name: Fedora 43
+              test: fedora43
             - name: Ubuntu 24.04
               test: ubuntu2404
-            - name: Ubuntu 26.04
-              test: ubuntu2604
           groups:
             - 3
             - 4
@@ -190,8 +187,8 @@ stages:
         parameters:
           testFormat: linux/{0}
           targets:
-            - name: Fedora 44
-              test: fedora44
+            - name: Fedora 43
+              test: fedora43
           groups:
             - 7
   - stage: PowerShell
@@ -214,7 +211,6 @@ stages:
             - test: 3.12
             - test: 3.13
             - test: 3.14
-            - test: 3.15
   - stage: Generic
     dependsOn: []
     jobs:
@@ -226,7 +222,6 @@ stages:
             - test: 3.12
             - test: 3.13
             - test: 3.14
-            - test: 3.15
   - stage: Incidental_Windows
     displayName: Incidental Windows
     dependsOn: []
@@ -236,6 +231,8 @@ stages:
           nameFormat: Server {0}
           testFormat: i/windows/{0}
           targets:
+            - name: 2016 WinRM HTTP WinPS
+              test: 2016/winrm/http/5.1
             - name: 2019 WinRM HTTPS WinPS
               test: 2019/winrm/https/5.1
             - name: 2022 WinRM HTTPS WinPS

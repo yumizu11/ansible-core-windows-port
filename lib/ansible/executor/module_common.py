@@ -149,9 +149,7 @@ def _get_ansiballz_code(shebang: str) -> str:
 # Do this instead of getting site-packages from distutils.sysconfig so we work when we
 # haven't been installed
 site_packages = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-# These patterns are forward-slash based; module paths are normalized to forward slashes before
-# matching (see _get_ansible_module_fqn) so that Windows backslash paths are handled too.
-CORE_LIBRARY_PATH_RE = re.compile(r'%s/(?P<path>ansible/modules/.*)\.(py|ps1)$' % re.escape(site_packages.replace('\\', '/')))
+CORE_LIBRARY_PATH_RE = re.compile(r'%s/(?P<path>ansible/modules/.*)\.(py|ps1)$' % re.escape(site_packages))
 COLLECTION_PATH_RE = re.compile(r'/(?P<path>ansible_collections/[^/]+/[^/]+/plugins/modules/.*)\.(py|ps1)$')
 
 # Detect new-style Python modules by looking for required imports:
@@ -611,9 +609,7 @@ class ModuleUtilLocatorBase:
         else:
             path_parts = candidate_name_parts
         self.found = True
-        # output_path is used as the arcname inside the module zip executed on the (POSIX) remote,
-        # so it must use '/' regardless of the controller OS (os.path.join would use '\' on Windows).
-        self.output_path = '/'.join(path_parts) + '.py'
+        self.output_path = os.path.join(*path_parts) + '.py'
         self.fq_name_parts = candidate_name_parts
 
     def _generate_redirect_shim_source(self, fq_source_module, fq_target_module) -> bytes:
@@ -660,9 +656,7 @@ class LegacyModuleUtilLocator(ModuleUtilLocatorBase):
         # find_spec needs the full module name
         self._info = info = importlib.machinery.PathFinder.find_spec('.'.join(name_parts), paths)
         if info is not None and info.origin is not None and os.path.splitext(info.origin)[1] in importlib.machinery.SOURCE_SUFFIXES:
-            # info.origin is a local filesystem path; use basename so the package check works with
-            # both '/' and Windows '\' separators.
-            self.is_package = os.path.basename(info.origin) == '__init__.py'
+            self.is_package = info.origin.endswith('/__init__.py')
             path = info.origin
         else:
             return False
@@ -987,14 +981,12 @@ def recursive_finder(
                 raise AnsibleError('Embed must be an ansible/ansible_collections resource.', obj=embed.resource)
 
             display.vvvvv(f"Including embed file {rel_path}")
-            # zip arcnames must use '/' for the POSIX remote, so use as_posix() rather than str()
-            # (which yields '\' on a Windows controller).
-            zf.writestr(_make_zinfo(str_path := rel_path.as_posix(), date_time, zf=zf), path.read_bytes())
+            zf.writestr(_make_zinfo(str_path := str(rel_path), date_time, zf=zf), path.read_bytes())
             written_files.add(str_path)
             for parent in rel_path.parents:
                 if not parent.name:
                     continue
-                p_init = (parent / '__init__.py').as_posix()
+                p_init = str(parent / '__init__.py')
                 if p_init not in written_files:
                     display.vvvvv(f"Including parent init file {p_init}")
                     zf.writestr(_make_zinfo(p_init, date_time, zf=zf), b'')
@@ -1032,9 +1024,6 @@ def _get_ansible_module_fqn(module_path):
         (non-module plugins, etc)
     """
     remote_module_fqn = None
-
-    # Normalize Windows backslash separators so the forward-slash-based patterns match.
-    module_path = module_path.replace('\\', '/')
 
     # Is this a core module?
     match = CORE_LIBRARY_PATH_RE.search(module_path)

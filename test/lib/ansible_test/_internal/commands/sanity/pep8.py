@@ -27,7 +27,6 @@ from ...util import (
     read_lines_without_comments,
     parse_to_list_of_dict,
     is_subdir,
-    common_environment,
 )
 
 from ...util_common import (
@@ -71,12 +70,9 @@ class Pep8Test(SanitySingleVersion):
             '--ignore', ','.join(sorted(current_ignore)),
         ] + paths  # fmt: skip
 
-        env = common_environment()
-        env.update(PYTHONWARNINGS='ignore')  # work around os.path.commonprefix deprecation warning triggered by pycodestyle
-
         if paths:
             try:
-                stdout, stderr = run_command(args, cmd, capture=True, env=env)
+                stdout, stderr = run_command(args, cmd, capture=True)
                 status = 0
             except SubprocessError as ex:
                 stdout = ex.stdout

@@ -596,7 +596,7 @@ class _AnsibleCollectionPkgLoaderBase:
         # TODO: ensure we're being asked for a path below something we own
         # TODO: try to handle redirects internally?
 
-        if not os.path.isabs(path):
+        if not path[0] == '/':
             # relative to current package, search package paths if possible (this may not be necessary)
             # candidate_paths = [os.path.join(ssp, path) for ssp in self._subpackage_search_paths]
             raise ValueError('relative resource paths not supported')

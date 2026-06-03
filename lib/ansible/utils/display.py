@@ -30,6 +30,7 @@ else:
 import collections.abc as c
 import codecs
 import ctypes.util
+import fcntl
 import getpass
 import io
 import logging
@@ -37,22 +38,14 @@ import os
 import secrets
 import subprocess
 import sys
+import termios
 import threading
 import time
+import tty
 import typing as t
-import unicodedata
 
 from functools import wraps
-
-# POSIX-only terminal control modules; unavailable on Windows.
-# Interactive prompt/raw-mode features that rely on these are guarded at their
-# call sites and are not yet supported on platforms lacking these modules.
-try:
-    import termios
-    import tty
-except ImportError:
-    termios = None  # type: ignore[assignment]
-    tty = None  # type: ignore[assignment]
+from struct import unpack, pack
 
 from ansible import constants as C
 from ansible.constants import config
@@ -72,33 +65,13 @@ if t.TYPE_CHECKING:
     # avoid circular import at runtime
     from ansible.executor.task_queue_manager import FinalQueue
 
-try:
-    _LIBC = ctypes.cdll.LoadLibrary(ctypes.util.find_library('c'))
-    # Set argtypes, to avoid segfault if the wrong type is provided,
-    # restype is assumed to be c_int
-    _LIBC.wcwidth.argtypes = (ctypes.c_wchar,)
-    _LIBC.wcswidth.argtypes = (ctypes.c_wchar_p, ctypes.c_int)
-except (OSError, TypeError, AttributeError):
-    # No C library exposing wc(s)width is available (e.g. Windows); fall back to a
-    # pure-Python implementation based on unicodedata (see _char_width).
-    _LIBC = None
+_LIBC = ctypes.cdll.LoadLibrary(ctypes.util.find_library('c'))
+# Set argtypes, to avoid segfault if the wrong type is provided,
+# restype is assumed to be c_int
+_LIBC.wcwidth.argtypes = (ctypes.c_wchar,)
+_LIBC.wcswidth.argtypes = (ctypes.c_wchar_p, ctypes.c_int)
 # Max for c_int
 _MAX_INT = 2 ** (ctypes.sizeof(ctypes.c_int) * 8 - 1) - 1
-
-
-def _char_width(c: str) -> int:
-    """Return the display width of a single character, using libc wcwidth when
-    available and a pure-Python unicodedata-based fallback otherwise."""
-    if _LIBC is not None:
-        try:
-            return _LIBC.wcwidth(c)
-        except ctypes.ArgumentError:
-            return -1
-    if unicodedata.combining(c):
-        return 0
-    if unicodedata.category(c) == 'Cc':
-        return -1  # non-printable control character
-    return 2 if unicodedata.east_asian_width(c) in ('W', 'F') else 1
 
 MOVE_TO_BOL = b'\r'
 CLEAR_TO_EOL = b'\x1b[K'
@@ -145,13 +118,12 @@ def get_text_width(text: str) -> int:
     if not isinstance(text, str):
         raise TypeError('get_text_width requires text, not %s' % type(text))
 
-    if _LIBC is not None:
-        try:
-            width = _LIBC.wcswidth(text, _MAX_INT)
-        except ctypes.ArgumentError:
-            width = -1
-        if width != -1:
-            return width
+    try:
+        width = _LIBC.wcswidth(text, _MAX_INT)
+    except ctypes.ArgumentError:
+        width = -1
+    if width != -1:
+        return width
 
     width = 0
     counter = 0
@@ -167,7 +139,10 @@ def get_text_width(text: str) -> int:
             counter -= 1
             continue
 
-        w = _char_width(c)
+        try:
+            w = _LIBC.wcwidth(c)
+        except ctypes.ArgumentError:
+            w = -1
         if w == -1:
             # -1 signifies a non-printable character
             # use 0 here as a best effort
@@ -202,7 +177,7 @@ class FilterUserInjector(logging.Filter):
     except (ImportError, KeyError, OSError):
         # deprecated: description='only OSError is required for Python 3.13+' python_version='3.12'
         # people like to make containers w/o actual valid passwd/shadow and use host uids
-        username = 'uid=%s' % (os.getuid() if hasattr(os, 'getuid') else 'unknown')
+        username = 'uid=%s' % os.getuid()
 
     def filter(self, record):
         record.user = FilterUserInjector.username
@@ -263,10 +238,7 @@ def _synchronize_textiowrapper(tio: t.TextIO, lock: threading.RLock):
             nonlocal lock
             lock = contextlib.nullcontext()
 
-        if hasattr(os, 'register_at_fork'):
-            # Only relevant where fork is available; on platforms without fork (e.g. Windows)
-            # there are no orphaned post-fork locks to guard against.
-            os.register_at_fork(after_in_child=disable_lock)
+        os.register_at_fork(after_in_child=disable_lock)
 
         @wraps(f)
         def locking_wrapper(*args, **kwargs):
@@ -282,7 +254,7 @@ def _synchronize_textiowrapper(tio: t.TextIO, lock: threading.RLock):
     buffer.flush = _wrap_with_lock(buffer.flush, lock)  # type: ignore[method-assign]
 
 
-def setraw(fd: int, when: int | None = None) -> None:
+def setraw(fd: int, when: int = termios.TCSAFLUSH) -> None:
     """Put terminal into a raw mode.
 
     Copied from ``tty`` from CPython 3.11.0, and modified to not remove OPOST from OFLAG
@@ -292,8 +264,6 @@ def setraw(fd: int, when: int | None = None) -> None:
     over the fork, but before it can be displayed, this plugin will have continued executing, potentially
     setting stdout and stdin to raw which remove output post processing that commonly converts NL to CRLF
     """
-    if when is None:
-        when = termios.TCSAFLUSH
     mode = termios.tcgetattr(fd)
     mode[tty.IFLAG] = mode[tty.IFLAG] & ~(termios.BRKINT | termios.ICRNL | termios.INPCK | termios.ISTRIP | termios.IXON)
     mode[tty.OFLAG] = mode[tty.OFLAG] & ~(termios.OPOST)
@@ -998,7 +968,7 @@ class Display(metaclass=Singleton):
 
     def _set_column_width(self) -> None:
         if os.isatty(1):
-            tty_size = os.get_terminal_size(1).columns
+            tty_size = unpack('HHHH', fcntl.ioctl(1, termios.TIOCGWINSZ, pack('HHHH', 0, 0, 0, 0)))[1]
         else:
             tty_size = 0
         self.columns = max(79, tty_size - 1)
@@ -1029,7 +999,7 @@ class Display(metaclass=Singleton):
             # Compare the current process group to the process group associated
             # with terminal of the given file descriptor to determine if the process
             # is running in the background.
-            or (hasattr(os, 'tcgetpgrp') and os.getpgrp() != os.tcgetpgrp(self._stdin_fd))
+            or os.getpgrp() != os.tcgetpgrp(self._stdin_fd)
         ):
             raise AnsiblePromptNoninteractive('stdin is not interactive')
 
@@ -1044,12 +1014,6 @@ class Display(metaclass=Singleton):
         #         raise AnsiblePromptInterrupt('user interrupt')
 
         self.display(msg)
-
-        if termios is None:
-            # Windows (no termios/raw mode): read from the console via msvcrt instead.
-            return self._read_console_stdin_windows(
-                echo=not private, seconds=seconds, interrupt_input=interrupt_input, complete_input=complete_input)
-
         result = b''
         with self._lock:
             original_stdin_settings = termios.tcgetattr(self._stdin_fd)
@@ -1119,61 +1083,6 @@ class Display(metaclass=Singleton):
             else:
                 result_string += key_pressed
         return result_string
-
-    def _read_console_stdin_windows(
-        self,
-        echo: bool = False,
-        seconds: int | None = None,
-        interrupt_input: c.Iterable[bytes] | None = None,
-        complete_input: c.Iterable[bytes] | None = None,
-    ) -> bytes:
-        """Windows console reader for prompt_until.
-
-        Equivalent to _read_non_blocking_stdin but uses msvcrt (the Windows console API) since
-        termios raw-mode and non-blocking fd reads are unavailable there.
-        """
-        import msvcrt
-
-        if seconds is not None:
-            start = time.time()
-
-        result = b''
-        while seconds is None or (time.time() - start < seconds):
-            if not msvcrt.kbhit():
-                # throttle to prevent excess CPU consumption
-                time.sleep(C.DEFAULT_INTERNAL_POLL_INTERVAL)
-                continue
-
-            ch = msvcrt.getwch()
-
-            # Function/arrow keys are delivered as a two-character sequence; discard them.
-            if ch in ('\x00', '\xe0'):
-                if msvcrt.kbhit():
-                    msvcrt.getwch()
-                continue
-
-            key_pressed = ch.encode('utf-8', errors='surrogatepass')
-
-            if (interrupt_input is None and key_pressed == b'\x03') or (interrupt_input is not None and key_pressed.lower() in interrupt_input):
-                self._stdout.write(b'\r\n')
-                self._stdout.flush()
-                raise AnsiblePromptInterrupt('user interrupt')
-            if (complete_input is None and ch in ('\r', '\n')) or (complete_input is not None and key_pressed.lower() in complete_input):
-                self._stdout.write(b'\r\n')
-                self._stdout.flush()
-                break
-            elif ch in ('\x08', '\x7f'):  # backspace
-                if result:
-                    result = result[:-1]
-                    if echo:
-                        self._stdout.write(b'\b \b')
-                        self._stdout.flush()
-            else:
-                result += key_pressed
-                if echo:
-                    self._stdout.write(key_pressed)
-                    self._stdout.flush()
-        return result
 
     @property
     def _stdin(self) -> t.BinaryIO | None:

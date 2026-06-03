@@ -31,9 +31,9 @@ class ActionModule(ActionBase):
 
     def remove_all(self):
         with SshAgentClient(os.environ['SSH_AUTH_SOCK']) as client:
-            nkeys_before = len(client.list())
+            nkeys_before = client.list().nkeys
             client.remove_all()
-            nkeys_after = len(client.list())
+            nkeys_after = client.list().nkeys
             return {
                 'failed': nkeys_after != 0,
                 'nkeys_removed': nkeys_before,
@@ -42,18 +42,18 @@ class ActionModule(ActionBase):
     def list(self):
         result = {'keys': [], 'nkeys': 0}
         with SshAgentClient(os.environ['SSH_AUTH_SOCK']) as client:
-            identity_list = client.list()
-            result['nkeys'] = len(identity_list)
-            for identity in identity_list:
-                public_key = identity.key.public_key
+            key_list = client.list()
+            result['nkeys'] = key_list.nkeys
+            for key in key_list.keys:
+                public_key = key.public_key
                 key_size = getattr(public_key, 'key_size', 256)
-                fingerprint = identity.key.fingerprint
-                key_type = identity.key.type.main_type
+                fingerprint = key.fingerprint
+                key_type = key.type.main_type
                 result['keys'].append({
                     'type': key_type,
                     'key_size': key_size,
                     'fingerprint': f'SHA256:{fingerprint}',
-                    'comment': identity.comment,
+                    'comments': key.comments,
                 })
 
         return result

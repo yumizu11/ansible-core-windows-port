@@ -29,26 +29,14 @@ import __main__
 import atexit
 import dataclasses as _dataclasses
 import errno
+import grp
+import fcntl
 import locale
 import os
+import pwd
 import platform
 import re
 import select
-
-try:
-    import grp
-except ImportError:
-    grp = None  # type: ignore[assignment]  # not available on non-POSIX platforms (e.g. Windows)
-
-try:
-    import pwd
-except ImportError:
-    pwd = None  # type: ignore[assignment]  # not available on non-POSIX platforms (e.g. Windows)
-
-try:
-    import fcntl
-except ImportError:
-    fcntl = None  # type: ignore[assignment]  # not available on non-POSIX platforms (e.g. Windows)
 import selectors
 import shlex
 import shutil
@@ -2104,13 +2092,7 @@ class AnsibleModule(object):
                 stdout_changed = False
                 for key, event in events:
                     b_chunk = key.fileobj.read(32768)
-                    if b_chunk is None:
-                        # Non-blocking read returned None (no data currently available).
-                        # This can happen with certain file-like objects or in edge cases.
-                        # Skip this chunk and try again on next select iteration.
-                        continue
-                    if not b_chunk:
-                        # Empty bytes received, EOF reached
+                    if not b_chunk and b_chunk is not None:
                         selector.unregister(key.fileobj)
                     elif key.fileobj == cmd.stdout:
                         stdout += b_chunk

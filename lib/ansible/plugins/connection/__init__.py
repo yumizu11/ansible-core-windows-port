@@ -5,14 +5,10 @@
 from __future__ import annotations
 
 import collections.abc as c
+import fcntl
 import os
 import shlex
 import typing as t
-
-try:
-    import fcntl
-except ImportError:
-    fcntl = None  # type: ignore[assignment]  # POSIX-only; connection_lock degrades gracefully when unavailable (e.g. Windows)
 
 from abc import abstractmethod
 from functools import wraps
@@ -229,17 +225,12 @@ class ConnectionBase(AnsiblePlugin):
         pass
 
     def connection_lock(self) -> None:
-        if fcntl is None:
-            # TODO(windows): provide a cross-platform connection lock (msvcrt byte-range lock or per-process threading.Lock).
-            return
         f = self._play_context.connection_lockfd
         display.vvvv('CONNECTION: pid %d waiting for lock on %d' % (os.getpid(), f), host=self._play_context.remote_addr)
         fcntl.lockf(f, fcntl.LOCK_EX)
         display.vvvv('CONNECTION: pid %d acquired lock on %d' % (os.getpid(), f), host=self._play_context.remote_addr)
 
     def connection_unlock(self) -> None:
-        if fcntl is None:
-            return
         f = self._play_context.connection_lockfd
         fcntl.lockf(f, fcntl.LOCK_UN)
         display.vvvv('CONNECTION: pid %d released lock on %d' % (os.getpid(), f), host=self._play_context.remote_addr)

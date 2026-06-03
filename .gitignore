@@ -131,17 +131,3 @@ changelogs/.plugin-cache.yaml
 .ansible-test-timeout.json
 # Agents
 CLAUDE.local.md
-
-# --- native Windows port additions ---
-# Python bytecode caches
-__pycache__/
-# Editable-install / build metadata
-*.egg-info/
-# Virtual environments (defensive; the venv normally lives outside the repo root)
-.venv*/
-# User-specific inventories copied from the examples (keep the *.example templates)
-examples/inventory_*.yml
-!examples/*.example
-# Local test scaffolding / verbose logs — must never contain real IPs, keys, or passwords
-_wintest/
-*.log

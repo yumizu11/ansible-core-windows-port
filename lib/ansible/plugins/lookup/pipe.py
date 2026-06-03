@@ -10,7 +10,6 @@ DOCUMENTATION = r"""
     short_description: read output from a command
     description:
       - Run a command and return the output.
-    positional: _terms
     options:
       _terms:
         description: command(s) to run.

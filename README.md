@@ -1,161 +1,103 @@
+[![PyPI version](https://img.shields.io/pypi/v/ansible-core.svg)](https://pypi.org/project/ansible-core)
+[![Docs badge](https://img.shields.io/badge/docs-latest-brightgreen.svg)](https://docs.ansible.com/ansible/latest/)
+[![Chat badge](https://img.shields.io/badge/chat-IRC-brightgreen.svg)](https://docs.ansible.com/ansible/devel/community/communication.html)
+[![Build Status](https://dev.azure.com/ansible/ansible/_apis/build/status/CI?branchName=devel)](https://dev.azure.com/ansible/ansible/_build/latest?definitionId=20&branchName=devel)
+[![Ansible Code of Conduct](https://img.shields.io/badge/code%20of%20conduct-Ansible-silver.svg)](https://docs.ansible.com/ansible/devel/community/code_of_conduct.html)
+[![Ansible mailing lists](https://img.shields.io/badge/mailing%20lists-Ansible-orange.svg)](https://docs.ansible.com/ansible/devel/community/communication.html#mailing-list-information)
 [![Repository License](https://img.shields.io/badge/license-GPL%20v3.0-brightgreen.svg)][copying]
+[![Ansible CII Best Practices certification](https://bestpractices.coreinfrastructure.org/projects/2372/badge)](https://bestpractices.coreinfrastructure.org/projects/2372)
 
-# ansible-core — native Windows port (unofficial)
+# Ansible
 
-**日本語版: [README_JP.md](README_JP.md)**
+Ansible is a radically simple IT automation system. It handles
+configuration management, application deployment, cloud provisioning,
+ad-hoc task execution, network automation, and multi-node orchestration. Ansible makes complex
+changes like zero-downtime rolling updates with load balancers easy. More information on the Ansible [website](https://ansible.com/).
 
-This repository is an **unofficial fork** of [ansible-core](https://github.com/ansible/ansible)
-modified so that the **Ansible controller runs natively on Windows** — i.e. you can run
-`ansible-playbook` (and the other CLIs) directly on a Windows machine, with no WSL, Cygwin, or
-Linux VM.
+## Design Principles
 
-Upstream ansible-core officially supports only a POSIX control node; on Windows the documented
-approach is to use WSL. This fork removes/guards the POSIX-only assumptions in the **controller**
-so it works on a stock Windows + CPython install.
+* Have an extremely simple setup process with a minimal learning curve.
+* Manage machines quickly and in parallel.
+* Avoid custom-agents and additional open ports, be agentless by
+  leveraging the existing SSH daemon.
+* Describe infrastructure in a language that is both machine and human
+  friendly.
+* Focus on security and easy auditability/review/rewriting of content.
+* Manage new remote machines instantly, without bootstrapping any
+  software.
+* Allow module development in any dynamic language, not just Python.
+* Be usable as non-root.
+* Be the easiest IT automation system to use, ever.
 
-> [!IMPORTANT]
-> **This is not an official Ansible / Red Hat project.** "Ansible" is a trademark of Red Hat, Inc.
-> This fork is not affiliated with, endorsed by, or supported by the Ansible project or Red Hat.
-> It is licensed under **GPL-3.0-or-later**, the same as upstream ansible-core. Based on
-> ansible-core `2.22.0.dev0` (the `devel` line). For production automation, prefer official Ansible.
+## Use Ansible
 
-## What works
+You can install a released version of Ansible with `pip` or a package manager. See our
+[installation guide](https://docs.ansible.com/ansible/latest/installation_guide/intro_installation.html) for details on installing Ansible
+on a variety of platforms.
 
-Verified end-to-end on a Windows controller (Windows 11 + CPython 3.12):
+Power users and developers can run the `devel` branch, which has the latest
+features and fixes, directly. Although it is reasonably stable, you are more likely to encounter
+breaking changes when running the `devel` branch. We recommend getting involved
+in the Ansible community if you want to run the `devel` branch.
 
-| Connection | Target managed | Modules | Verified against |
-|---|---|---|---|
-| `local` | the Windows host itself | PowerShell (`ansible.windows.win_*`) | local machine |
-| `ssh` | remote **Linux** | Python (`ping`, `command`, `setup`, `copy`, …) | AWS EC2 (RHEL 9) |
-| `winrm` | remote **Windows** | PowerShell | Windows Server 2025 (HTTPS) |
-| `psrp` | remote **Windows** | PowerShell | Windows Server 2025 (HTTPS) |
+## Communication
 
-Also working: fact gathering, file transfer (sftp/scp and PowerShell copy), idempotency,
-passwordless `become` (sudo) over SSH, interactive prompts (`vars_prompt`, `pause`, `--ask-*`),
-and the CLIs `ansible`, `ansible-playbook`, `ansible-doc`, `ansible-config`, `ansible-inventory`,
-`ansible-vault`, and `ansible-galaxy`.
+Join the Ansible forum to ask questions, get help, and interact with the
+community.
 
-See **[PORTING.md](PORTING.md)** for the full technical write-up of every change (and a guide for
-re-porting future Ansible versions). A flat list of modified files is in
-[CHANGES_WINDOWS.md](CHANGES_WINDOWS.md).
+* [Get Help](https://forum.ansible.com/c/help/6): Find help or share your Ansible knowledge to help others.
+  Use tags to filter and subscribe to posts, such as the following:
+  * Posts tagged with [ansible](https://forum.ansible.com/tag/ansible)
+  * Posts tagged with [ansible-core](https://forum.ansible.com/tag/ansible-core)
+  * Posts tagged with [playbook](https://forum.ansible.com/tag/playbook)
+* [Social Spaces](https://forum.ansible.com/c/chat/4): Meet and interact with fellow enthusiasts.
+* [News & Announcements](https://forum.ansible.com/c/news/5): Track project-wide announcements including social events.
+* [Bullhorn newsletter](https://docs.ansible.com/ansible/devel/community/communication.html#the-bullhorn): Get release announcements and important changes.
 
-## Requirements
+For more ways to get in touch, see [Communicating with the Ansible community](https://docs.ansible.com/ansible/devel/community/communication.html).
 
-* **Windows 10/11 or Windows Server** (x64).
-* **CPython 3.12 or newer** (the controller requires 3.12+; it is also used in UTF-8 mode — handled
-  automatically, see below).
-* For `ssh` connections: the built-in Windows **OpenSSH client** (`ssh.exe`, included in modern Windows).
-* For `winrm` / `psrp` connections: `pip install pywinrm` / `pip install pypsrp` respectively, and a
-  reachable WSMan listener on the target.
+## Contribute to Ansible
 
-## Installation
+* Check out the [Contributor's Guide](https://github.com/ansible/ansible/blob/devel/.github/CONTRIBUTING.md).
+* Read [Community Information](https://docs.ansible.com/ansible/devel/community) for all
+  kinds of ways to contribute to and interact with the project,
+  including how to submit bug reports and code to Ansible.
+* Submit a proposed code update through a pull request to the `devel` branch.
+* Talk to us before making larger changes
+  to avoid duplicate efforts. This not only helps everyone
+  know what is going on, but it also helps save time and effort if we decide
+  some changes are needed.
 
-```powershell
-# from the repository root (this folder)
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -U pip
-.\.venv\Scripts\python.exe -m pip install -e .
+## Coding Guidelines
 
-# optional, for managing Windows targets:
-.\.venv\Scripts\python.exe -m pip install pywinrm pypsrp
-```
+We document our Coding Guidelines in the [Developer Guide](https://docs.ansible.com/ansible/devel/dev_guide/). We particularly suggest you review:
 
-The CLIs are then available as `\.venv\Scripts\ansible-playbook.exe`, `ansible.exe`, etc.
+* [Contributing your module to Ansible](https://docs.ansible.com/ansible/devel/dev_guide/developing_modules_checklist.html)
+* [Conventions, tips, and pitfalls](https://docs.ansible.com/ansible/devel/dev_guide/developing_modules_best_practices.html)
 
-> [!TIP]
-> Run the installed **console scripts** (`ansible-playbook.exe`), or activate the venv and use
-> `ansible-playbook`. Avoid `python -m ansible.cli.playbook` **from the repository root**, because
-> the repo's own `ansible\` folder would shadow the installed package on `sys.path`.
+## Branch Info
 
-## Quick start
+* The `devel` branch corresponds to the release actively under development.
+* The `stable-2.X` branches correspond to stable releases.
+* Create a branch based on `devel` and set up a [dev environment](https://docs.ansible.com/ansible/devel/dev_guide/developing_modules_general.html#common-environment-setup) if you want to open a PR.
+* See the [Ansible release and maintenance](https://docs.ansible.com/ansible/devel/reference_appendices/release_and_maintenance.html) page for information about active branches.
 
-### Manage the local Windows host (`connection=local`)
+## Roadmap
 
-```yaml
-# play_local.yml
-- hosts: localhost
-  connection: local
-  gather_facts: false
-  tasks:
-    - ansible.windows.win_ping:
-    - ansible.windows.win_command: whoami
-```
+Based on team and community feedback, an initial roadmap will be published for a major or minor version (ex: 2.7, 2.8).
+The [Ansible Roadmap page](https://docs.ansible.com/ansible/devel/roadmap/) details what is planned and how to influence the roadmap.
 
-```powershell
-ansible-galaxy collection install ansible.windows
-ansible-playbook -i "localhost," -c local play_local.yml
-```
+## Authors
 
-### Manage a remote Linux host over SSH
+Ansible was created by [Michael DeHaan](https://github.com/mpdehaan)
+and has contributions from over 5000 users (and growing). Thanks everyone!
 
-```yaml
-# inventory_ssh.yml
-all:
-  hosts:
-    linux1:
-      ansible_host: 203.0.113.10
-      ansible_user: ec2-user
-      ansible_connection: ssh
-      ansible_ssh_private_key_file: 'C:\Users\you\.ssh\key.pem'
-      ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
-```
-
-```powershell
-$env:ANSIBLE_HOST_KEY_CHECKING = "False"
-ansible-playbook -i inventory_ssh.yml your_play.yml
-```
-
-### Manage a remote Windows host over WinRM or PSRP
-
-```yaml
-# inventory_win.yml  (HTTPS / self-signed cert example)
-all:
-  hosts:
-    win1:
-      ansible_host: 203.0.113.20
-      ansible_user: Administrator
-      ansible_password: "{{ lookup('env', 'WIN_PW') }}"
-      ansible_connection: winrm          # or: psrp
-      ansible_port: 5986
-      ansible_winrm_transport: ntlm       # psrp: ansible_psrp_auth: ntlm
-      ansible_winrm_scheme: https         # psrp: ansible_psrp_protocol: https
-      ansible_winrm_server_cert_validation: ignore   # psrp: ansible_psrp_cert_validation: ignore
-```
-
-```powershell
-$env:WIN_PW = "<password>"
-ansible-playbook -i inventory_win.yml your_play.yml
-```
-
-## Notes & ergonomics
-
-* **No special environment variables are required.** UTF-8 mode is enabled automatically (the CLI
-  re-execs itself with `PYTHONUTF8=1` on Windows when needed), config path defaults are made
-  platform-aware, and `connection=local` defaults to the PowerShell shell on Windows.
-* **Windows OpenSSH has no connection multiplexing**; the SSH connection automatically drops
-  `ControlMaster`/`ControlPersist`/`ControlPath` on Windows.
-
-## Known limitations
-
-* Python modules can only run on **remote POSIX** targets (over SSH). Running Python modules against
-  the Windows host itself (`connection=local`) is not a goal — use PowerShell `win_*` modules there.
-* **Password-prompted `become` over SSH** is not verified (the controller-side PTY path is skipped on
-  Windows). Passwordless sudo works.
-* Persistent connections (`network_cli`/`httpapi` via the connection daemon) are not ported.
-* `ansible-console` (interactive REPL) and `ansible-test` (POSIX-only) are out of scope.
-
-## Relationship to upstream Ansible / attribution
-
-This is a derivative work of ansible-core. The original project README is preserved at
-[README.upstream.md](README.upstream.md). All upstream copyright notices and license headers are
-retained. Changes made by this fork are summarized in [PORTING.md](PORTING.md) and
-[CHANGES_WINDOWS.md](CHANGES_WINDOWS.md), as required by the GPL.
-
-* Upstream project: <https://github.com/ansible/ansible>
-* Upstream documentation: <https://docs.ansible.com/>
+[Ansible](https://www.ansible.com) is sponsored by [Red Hat, Inc.](https://www.redhat.com)
 
 ## License
 
-GNU General Public License v3.0 or later. See [COPYING] for the full text.
+GNU General Public License v3.0 or later
 
-[copying]: COPYING
+See [COPYING] to see the full text.
+
+[copying]: https://github.com/ansible/ansible/blob/devel/COPYING

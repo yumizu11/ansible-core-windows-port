@@ -335,7 +335,6 @@ from ansible._internal._powershell import _script
 from ansible.errors import AnsibleConnectionFailure, AnsibleError
 from ansible.errors import AnsibleFileNotFound
 from ansible.executor.powershell.module_manifest import _bootstrap_powershell_script
-from ansible.module_utils._internal._datatag import AnsibleTagHelper
 from ansible.module_utils.parsing.convert_bool import boolean
 from ansible.module_utils.common.text.converters import to_bytes, to_native, to_text
 from ansible.plugins.connection import ConnectionBase
@@ -671,12 +670,6 @@ class Connection(ConnectionBase):
         if certificate_key_password:
             self._psrp_conn_kwargs['certificate_key_password'] = certificate_key_password
 
-        # pypsrp's auth backends (notably the Windows SSPI path in pyspnego, which is Cython and
-        # rejects subclasses of builtin types) require plain native values, but config/inventory
-        # values arrive as ansible tagged strings (str subclasses). Convert to native types.
-        self._psrp_conn_kwargs = {k: AnsibleTagHelper.as_native_type(v) for k, v in self._psrp_conn_kwargs.items()}
-        self._psrp_runspace_kwargs = {k: AnsibleTagHelper.as_native_type(v) for k, v in self._psrp_runspace_kwargs.items()}
-
     def _exec_psrp_script(
         self,
         script: str,
@@ -753,7 +746,17 @@ class Connection(ConnectionBase):
             # NativeCommandError and NativeCommandErrorMessage are special
             # cases used for stderr from a subprocess, we will just print the
             # error message
-            if error.fq_error in ['NativeCommandError', 'NativeCommandErrorMessage']:
+            if error.fq_error == 'NativeCommandErrorMessage' and not error.target_name:
+                # This can be removed once Server 2016 is EOL and no longer
+                # supported. PS 5.1 on 2016 will emit 1 error record under
+                # NativeCommandError being the first line, subsequent records
+                # are the raw stderr up to 4096 chars. Each entry is the raw
+                # stderr value without any newlines appended so we just use the
+                # value as is. We know it's 2016 as the target_name is empty in
+                # this scenario.
+                stderr_list.append(str(error))
+                continue
+            elif error.fq_error in ['NativeCommandError', 'NativeCommandErrorMessage']:
                 stderr_list.append(f"{error}\r\n")
                 continue
 
@@ -773,14 +776,9 @@ class Connection(ConnectionBase):
             stderr_list += self.host.ui.stderr
         stderr = "".join([to_text(o) for o in stderr_list])
 
-        log_stdout = stdout
-        log_stderr = stderr
-        if self._play_context.no_log:
-            log_stdout = log_stderr = '<censored due to no log>'
-
         display.vvvvv("PSRP RC: %d" % rc, host=self._psrp_host)
-        display.vvvvv(f"PSRP STDOUT: {log_stdout}", host=self._psrp_host)
-        display.vvvvv(f"PSRP STDERR: {log_stderr}", host=self._psrp_host)
+        display.vvvvv("PSRP STDOUT: %s" % stdout, host=self._psrp_host)
+        display.vvvvv("PSRP STDERR: %s" % stderr, host=self._psrp_host)
 
         # reset the host back output back to defaults, needed if running
         # multiple pipelines on the same RunspacePool

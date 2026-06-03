@@ -32,7 +32,6 @@ from io import BytesIO
 from importlib.metadata import distribution
 from importlib.resources import files
 from itertools import chain
-from operator import itemgetter
 
 try:
     from packaging.requirements import Requirement as PkgReq
@@ -80,10 +79,7 @@ if t.TYPE_CHECKING:
     ManifestValueType = t.Dict[CollectionInfoKeysType, t.Union[int, str, t.List[str], t.Dict[str, str], None]]
     CollectionManifestType = t.Dict[ManifestKeysType, ManifestValueType]
     FileManifestEntryType = t.Dict[FileMetaKeysType, t.Union[str, int, None]]
-
-    class FilesManifestType(t.TypedDict):
-        files: t.List[FileManifestEntryType]
-        format: int
+    FilesManifestType = t.Dict[t.Literal['files', 'format'], t.Union[t.List[FileManifestEntryType], int]]
 
 import ansible.constants as C
 from ansible.errors import AnsibleError
@@ -1074,19 +1070,15 @@ def _build_files_manifest(b_collection_path, namespace, name, ignore_patterns,
         raise AnsibleError('"build_ignore" and "manifest" are mutually exclusive')
 
     if manifest_control is not Sentinel:
-        manifest = _build_files_manifest_distlib(
+        return _build_files_manifest_distlib(
             b_collection_path,
             namespace,
             name,
             manifest_control,
             license_file,
         )
-    else:
-        manifest = _build_files_manifest_walk(b_collection_path, namespace, name, ignore_patterns)
 
-    manifest['files'].sort(key=itemgetter('name'))
-
-    return manifest
+    return _build_files_manifest_walk(b_collection_path, namespace, name, ignore_patterns)
 
 
 def _build_files_manifest_distlib(b_collection_path, namespace, name, manifest_control,
@@ -1188,6 +1180,7 @@ def _build_files_manifest_distlib(b_collection_path, namespace, name, manifest_c
             )
 
         manifest['files'].append(manifest_entry)
+
     return manifest
 
 
@@ -1304,7 +1297,7 @@ def _build_collection_tar(
         file_manifest,  # type: FilesManifestType
 ):  # type: (...) -> str
     """Build a tar.gz collection artifact from the manifest data."""
-    files_manifest_json = to_bytes(json.dumps(file_manifest, indent=True, sort_keys=True), errors='surrogate_or_strict')
+    files_manifest_json = to_bytes(json.dumps(file_manifest, indent=True), errors='surrogate_or_strict')
     collection_manifest['file_manifest_file']['chksum_sha256'] = secure_hash_s(files_manifest_json, hash_func=sha256)
     collection_manifest_json = to_bytes(json.dumps(collection_manifest, indent=True), errors='surrogate_or_strict')
 
@@ -1376,7 +1369,7 @@ def _build_collection_dir(b_collection_path, b_collection_output, collection_man
     """
     os.makedirs(b_collection_output, mode=S_IRWXU_RXG_RXO)
 
-    files_manifest_json = to_bytes(json.dumps(file_manifest, indent=True, sort_keys=True), errors='surrogate_or_strict')
+    files_manifest_json = to_bytes(json.dumps(file_manifest, indent=True), errors='surrogate_or_strict')
     collection_manifest['file_manifest_file']['chksum_sha256'] = secure_hash_s(files_manifest_json, hash_func=sha256)
     collection_manifest_json = to_bytes(json.dumps(collection_manifest, indent=True), errors='surrogate_or_strict')
 
@@ -1389,7 +1382,7 @@ def _build_collection_dir(b_collection_path, b_collection_output, collection_man
         os.chmod(b_path, S_IRWU_RG_RO)
 
     base_directories = []
-    for file_info in file_manifest['files']:
+    for file_info in sorted(file_manifest['files'], key=lambda x: x['name']):
         if file_info['name'] == '.':
             continue
 

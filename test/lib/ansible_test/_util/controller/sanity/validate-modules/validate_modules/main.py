@@ -26,7 +26,6 @@ import os
 import re
 import sys
 import traceback
-import typing as t
 import warnings
 
 from collections import OrderedDict
@@ -817,40 +816,21 @@ class ModuleValidator(Validator):
                 msg='%s: %s' % (combined_path, error_message)
             )
 
-    def _validate_option_docs(self, options: t.Any, *, context: list[str] | None = None, positional: t.Any | None = None) -> None:
+    def _validate_option_docs(self, options, context=None):
         if not isinstance(options, dict):
             return
         if context is None:
             context = []
 
-        if isinstance(positional, str):
-            positional = [part.strip() for part in positional.split(",")] if positional else []
-        if isinstance(positional, list):
-            prev_positional = set()
-            for pos_opt in positional:
-                if pos_opt in prev_positional:
-                    self.reporter.error(
-                        path=self.object_path,
-                        code='positional-repeated',
-                        msg=f"The option {pos_opt!r} is listed as a positional option more than once",
-                    )
-                if pos_opt not in options:
-                    self.reporter.error(
-                        path=self.object_path,
-                        code='positional-not-option',
-                        msg=f"{pos_opt!r} is listed as a positional option, but is not an option of the plugin",
-                    )
-                prev_positional.add(pos_opt)
+        normalized_option_alias_names = dict()
 
-        normalized_option_alias_names: dict[str, dict[str, set[str]]] = dict()
-
-        def add_option_alias_name(name: str, option_name: str) -> None:
+        def add_option_alias_name(name, option_name):
             normalized_name = str(name).lower()
             normalized_option_alias_names.setdefault(normalized_name, {}).setdefault(option_name, set()).add(name)
 
         for option, data in options.items():
             if 'suboptions' in data:
-                self._validate_option_docs(data.get('suboptions'), context=context + [option])
+                self._validate_option_docs(data.get('suboptions'), context + [option])
             add_option_alias_name(option, option)
             if 'aliases' in data and isinstance(data['aliases'], list):
                 for alias in data['aliases']:
@@ -991,13 +971,10 @@ class ModuleValidator(Validator):
 
             with CaptureStd():
                 try:
-                    get_docstring(
-                        filename=os.path.abspath(self.path),
-                        fragment_loader=fragment_loader,
-                        verbose=True,
-                        collection_name=self.collection_name,
-                        plugin_type=self.plugin_type,
-                    )
+                    get_docstring(os.path.abspath(self.path), fragment_loader=fragment_loader,
+                                  verbose=True,
+                                  collection_name=self.collection_name,
+                                  plugin_type=self.plugin_type)
                 except AnsibleFragmentError:
                     # Will be re-triggered below when explicitly calling add_fragments()
                     pass
@@ -1065,7 +1042,7 @@ class ModuleValidator(Validator):
             )
 
             if doc:
-                self._validate_option_docs(doc.get('options'), positional=doc.get('positional'))
+                self._validate_option_docs(doc.get('options'))
 
             self._validate_all_semantic_markup(doc, returns)
 
@@ -2204,11 +2181,8 @@ class ModuleValidator(Validator):
         with CaptureStd():
             try:
                 existing_doc, dummy_examples, dummy_return, existing_metadata = get_docstring(
-                    filename=os.path.abspath(self.base_module),
-                    fragment_loader=fragment_loader,
-                    verbose=True,
-                    collection_name=self.collection_name,
-                    plugin_type=self.plugin_type)
+                    os.path.abspath(self.base_module), fragment_loader, verbose=True, collection_name=self.collection_name,
+                    is_module=self.plugin_type == 'module')
                 existing_options = existing_doc.get('options', {}) or {}
             except AssertionError:
                 fragment = doc['extends_documentation_fragment']

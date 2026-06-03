@@ -62,7 +62,7 @@
 
 - name: check for tags
   stat: path={{ subversion_test_dir }}/svn/tags
-  register: tags_result
+  register: tags
 
 - name: check for trunk
   stat: path={{ subversion_test_dir }}/svn/trunk
@@ -75,7 +75,7 @@
 - name: assert presence of tags/trunk/branches
   assert:
     that:
-      - "tags_result.stat.isdir"
+      - "tags.stat.isdir"
       - "trunk.stat.isdir"
       - "branches.stat.isdir"
 

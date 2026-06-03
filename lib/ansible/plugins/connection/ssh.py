@@ -415,11 +415,13 @@ import collections.abc as c
 import argparse
 import errno
 import contextlib
+import fcntl
 import hashlib
 import io
 import json
 import os
 import pathlib
+import pty
 import re
 import selectors
 import shlex
@@ -427,22 +429,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import typing as t
 from functools import wraps
 from multiprocessing.shared_memory import SharedMemory
-
-# POSIX-only modules; on platforms without them (e.g. Windows) the non-blocking pipe I/O in
-# _bare_run falls back to a thread-based reader and the become-prompt PTY is skipped.
-try:
-    import fcntl
-except ImportError:
-    fcntl = None  # type: ignore[assignment]
-try:
-    import pty
-except ImportError:
-    pty = None  # type: ignore[assignment]
 
 from ansible import constants as C
 from ansible._internal._powershell import _clixml
@@ -467,100 +457,6 @@ else:
 
 
 display = Display()
-
-
-class _ThreadedPipeReader:
-    """
-    Drains a single subprocess pipe in a background thread.
-
-    On platforms that cannot select on pipe handles (e.g. Windows), this provides the
-    non-blocking semantics _bare_run relies on: the thread reads into a buffer, and read()
-    returns whatever is currently buffered (or b'' once EOF has been reached and drained).
-    """
-
-    def __init__(self, stream, condition: threading.Condition) -> None:
-        self._stream = stream
-        self._condition = condition
-        self._buffer = bytearray()
-        self._eof = False
-        self._thread = threading.Thread(target=self._drain, daemon=True)
-        self._thread.start()
-
-    def _drain(self) -> None:
-        try:
-            while True:
-                chunk = self._stream.read1(BUFSIZE)
-                with self._condition:
-                    if chunk:
-                        self._buffer += chunk
-                    else:
-                        self._eof = True
-                    self._condition.notify_all()
-                if not chunk:
-                    break
-        except (OSError, ValueError):
-            with self._condition:
-                self._eof = True
-                self._condition.notify_all()
-
-    def ready(self) -> bool:
-        return bool(self._buffer) or self._eof
-
-    def read(self) -> bytes:
-        with self._condition:
-            if self._buffer:
-                data = bytes(self._buffer)
-                del self._buffer[:]
-                return data
-            return b''
-
-
-class _ThreadedSelector:
-    """
-    Minimal ``selectors.DefaultSelector`` replacement backed by _ThreadedPipeReader, for reading
-    subprocess pipes where selecting on pipe handles is unsupported (e.g. Windows). Only the subset
-    of the selector API used by SSH._bare_run is implemented, and it operates on _ThreadedPipeReader
-    objects (added via ``add``) rather than raw streams.
-    """
-
-    class _Key:
-        __slots__ = ('fileobj',)
-
-        def __init__(self, fileobj: _ThreadedPipeReader) -> None:
-            self.fileobj = fileobj
-
-    def __init__(self) -> None:
-        self._condition = threading.Condition()
-        self._readers: dict = {}
-
-    def add(self, stream) -> _ThreadedPipeReader:
-        reader = _ThreadedPipeReader(stream, self._condition)
-        self._readers[reader] = reader
-        return reader
-
-    def unregister(self, fileobj) -> None:
-        self._readers.pop(fileobj, None)
-
-    def get_map(self) -> dict:
-        return self._readers
-
-    def select(self, timeout=None):
-        with self._condition:
-            deadline = None if timeout is None else time.monotonic() + timeout
-            while True:
-                ready = [(self._Key(r), selectors.EVENT_READ) for r in self._readers if r.ready()]
-                if ready or not self._readers:
-                    return ready
-                remaining = None
-                if deadline is not None:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        return []
-                self._condition.wait(remaining)
-
-    def close(self) -> None:
-        self._readers.clear()
-
 
 # error messages that indicate 255 return code is not from ssh itself.
 b_NOT_SSH_ERRORS = (b'Traceback (most recent call last):',  # Python-2.6 when there's an exception
@@ -1037,26 +933,6 @@ class Connection(ConnectionBase):
                 "Restrict number of password prompts in case incorrect password is provided.",
             )
 
-        # Windows OpenSSH does not support connection multiplexing; ControlMaster/ControlPath/
-        # ControlPersist options (e.g. from the default ssh_args) otherwise cause the connection to
-        # fail, so strip them on a Windows controller and disable persistence.
-        if os.name == 'nt':
-            filtered: list[bytes] = []
-            skip_next = False
-            for i, arg in enumerate(b_command):
-                if skip_next:
-                    skip_next = False
-                    continue
-                if arg == b'-o' and i + 1 < len(b_command) and \
-                        b_command[i + 1].lower().startswith((b'controlmaster', b'controlpersist', b'controlpath')):
-                    skip_next = True
-                    continue
-                if arg.lower().startswith((b'-ocontrolmaster', b'-ocontrolpersist', b'-ocontrolpath')):
-                    continue
-                filtered.append(arg)
-            b_command = filtered
-            self._persistent = False
-
         # Finally, we add any caller-supplied extras.
         if other_args:
             b_command += [to_bytes(a) for a in other_args]
@@ -1251,7 +1127,7 @@ class Connection(ConnectionBase):
             cmd[:0] = b_ssh_pass_cmd
             popen_kwargs['pass_fds'] = self.sshpass_pipe
 
-        if pty is not None and not in_data:
+        if not in_data:
             try:
                 # Make sure stdin is a proper pty to avoid tcgetattr errors
                 master, slave = pty.openpty()
@@ -1328,23 +1204,14 @@ class Connection(ConnectionBase):
         # they will race each other when we can't connect, and the connect
         # timeout usually fails
         timeout = 2 + self.get_option('timeout')
-        if fcntl is not None:
-            for fd in (p.stdout, p.stderr):
-                fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) | os.O_NONBLOCK)
+        for fd in (p.stdout, p.stderr):
+            fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) | os.O_NONBLOCK)
 
-            # TODO: bcoca would like to use SelectSelector() when open
-            # select is faster when filehandles is low and we only ever handle 1.
-            selector = selectors.DefaultSelector()
-            stdout_obj = p.stdout
-            stderr_obj = p.stderr
-            selector.register(stdout_obj, selectors.EVENT_READ)
-            selector.register(stderr_obj, selectors.EVENT_READ)
-        else:
-            # Platforms without fcntl (e.g. Windows) cannot set pipes non-blocking nor select on
-            # them; drain the pipes via background threads instead (see _ThreadedSelector).
-            selector = _ThreadedSelector()
-            stdout_obj = selector.add(p.stdout)
-            stderr_obj = selector.add(p.stderr)
+        # TODO: bcoca would like to use SelectSelector() when open
+        # select is faster when filehandles is low and we only ever handle 1.
+        selector = selectors.DefaultSelector()
+        selector.register(p.stdout, selectors.EVENT_READ)
+        selector.register(p.stderr, selectors.EVENT_READ)
 
         # If we can send initial data without waiting for anything, we do so
         # before we start polling
@@ -1375,11 +1242,11 @@ class Connection(ConnectionBase):
                 # listening to the pipe if it's been closed.
 
                 for key, event in events:
-                    if key.fileobj is stdout_obj:
-                        b_chunk = key.fileobj.read()
+                    if key.fileobj == p.stdout:
+                        b_chunk = p.stdout.read()
                         if b_chunk == b'':
                             # stdout has been closed, stop watching it
-                            selector.unregister(stdout_obj)
+                            selector.unregister(p.stdout)
                             # When ssh has ControlMaster (+ControlPath/Persist) enabled, the
                             # first connection goes into the background and we never see EOF
                             # on stderr. If we see EOF on stdout, lower the select timeout
@@ -1390,11 +1257,11 @@ class Connection(ConnectionBase):
                             timeout = 1
                         b_tmp_stdout += b_chunk
                         display.debug(u"stdout chunk (state=%s):\n>>>%s<<<\n" % (state, to_text(b_chunk)))
-                    elif key.fileobj is stderr_obj:
-                        b_chunk = key.fileobj.read()
+                    elif key.fileobj == p.stderr:
+                        b_chunk = p.stderr.read()
                         if b_chunk == b'':
                             # stderr has been closed, stop watching it
-                            selector.unregister(stderr_obj)
+                            selector.unregister(p.stderr)
                         b_tmp_stderr += b_chunk
                         display.debug("stderr chunk (state=%s):\n>>>%s<<<\n" % (state, to_text(b_chunk)))
 

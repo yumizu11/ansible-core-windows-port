@@ -38,17 +38,12 @@ DOCUMENTATION = """
 import functools
 import getpass
 import os
+import pty
 import selectors
-import shlex
 import shutil
 import subprocess
 import time
 import typing as t
-
-try:
-    import pty
-except ImportError:
-    pty = None  # type: ignore[assignment]  # POSIX-only; the become-prompt PTY falls back to a pipe when unavailable (e.g. Windows)
 
 import ansible.constants as C
 from ansible.errors import AnsibleError, AnsibleFileNotFound, AnsibleConnectionFailure
@@ -66,10 +61,6 @@ class Connection(ConnectionBase):
     transport = 'local'
     has_pipelining = True
 
-    # On a Windows controller, modules executed against the local host are PowerShell
-    # modules, so default to the powershell shell there (unless ansible_shell_type is set).
-    _shell_type = 'powershell' if os.name == 'nt' else None
-
     def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
 
         super(Connection, self).__init__(*args, **kwargs)
@@ -78,8 +69,7 @@ class Connection(ConnectionBase):
             self.default_user = getpass.getuser()
         except (ImportError, KeyError, OSError):
             # deprecated: description='only OSError is required for Python 3.13+' python_version='3.12'
-            uid = os.getuid() if hasattr(os, 'getuid') else 'unknown'
-            display.vv("Current user (uid=%s) does not seem to exist on this system, leaving user empty." % uid)
+            display.vv("Current user (uid=%s) does not seem to exist on this system, leaving user empty." % os.getuid())
             self.default_user = ""
 
     def _connect(self) -> Connection:
@@ -101,44 +91,23 @@ class Connection(ConnectionBase):
 
         display.debug("in local.exec_command()")
 
-        if getattr(self._shell, '_IS_WINDOWS', False):
-            # PowerShell/Windows shells emit a complete command line (e.g. powershell.exe ...);
-            # run it via the OS default shell rather than a POSIX executable like /bin/sh.
-            executable = None
-        else:
-            executable = C.DEFAULT_EXECUTABLE.split()[0] if C.DEFAULT_EXECUTABLE else None
+        executable = C.DEFAULT_EXECUTABLE.split()[0] if C.DEFAULT_EXECUTABLE else None
 
-            if not os.path.exists(to_bytes(executable, errors='surrogate_or_strict')):
-                raise AnsibleError("failed to find the executable specified %s."
-                                   " Please verify if the executable exists and re-try." % executable)
+        if not os.path.exists(to_bytes(executable, errors='surrogate_or_strict')):
+            raise AnsibleError("failed to find the executable specified %s."
+                               " Please verify if the executable exists and re-try." % executable)
 
         display.vvv(u"EXEC {0}".format(to_text(cmd)), host=self._play_context.remote_addr)
         display.debug("opening command with Popen()")
 
         if isinstance(cmd, (str, bytes)):
             cmd = to_text(cmd)
-            if getattr(self._shell, '_IS_WINDOWS', False):
-                # The PowerShell command line is fully self-contained (powershell ... -EncodedCommand <base64>)
-                # and POSIX-quoted by the shell plugin. Split it into argv and execute the interpreter directly
-                # (shell=False) so the OS shell (cmd.exe) doesn't mangle the quoting.
-                cmd = shlex.split(cmd, posix=True)
         else:
-            cmd = list(map(to_text, cmd))
-
-        popen_env = None
-        if getattr(self._shell, '_IS_WINDOWS', False):
-            # Windows PowerShell (5.1) must not inherit a PSModulePath that contains PowerShell 7
-            # module directories (which happens when ansible is launched from a pwsh session), or it
-            # will load incompatible PS7 modules - breaking e.g. Get-FileHash and the ObjectSecurity
-            # ETS type data. Drop PSModulePath so the interpreter builds its own correct default.
-            popen_env = os.environ.copy()
-            # os.environ uppercases keys on Windows, so match case-insensitively.
-            for _key in [k for k in popen_env if k.lower() == 'psmodulepath']:
-                del popen_env[_key]
+            cmd = map(to_text, cmd)
 
         pty_primary = None
         stdin = subprocess.PIPE
-        if pty is not None and sudoable and self.become and self.become.expect_prompt() and not self.get_option('pipelining'):
+        if sudoable and self.become and self.become.expect_prompt() and not self.get_option('pipelining'):
             # Create a pty if sudoable for privilege escalation that needs it.
             # Falls back to using a standard pipe if this fails, which may
             # cause the command to fail in certain situations where we are escalating
@@ -156,7 +125,6 @@ class Connection(ConnectionBase):
             stdin=stdin,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env=popen_env,
         )
 
         # if we created a pty, we can close the other half of the pty now, otherwise primary is stdin

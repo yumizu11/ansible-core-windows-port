@@ -10,7 +10,6 @@ DOCUMENTATION = """
     description:
         - Takes dictionaries as input and returns a list with each item in the list being a dictionary with 'key' and 'value' as
           keys to the previous dictionary's structure.
-    positional: _terms
     options:
         _terms:
             description:

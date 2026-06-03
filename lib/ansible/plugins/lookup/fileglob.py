@@ -11,7 +11,6 @@ DOCUMENTATION = """
     description:
         - Matches all files in a single directory, non-recursively, that match a pattern.
           It calls Python's "glob" library.
-    positional: _terms
     options:
       _terms:
         description: path(s) of files to read

@@ -9,18 +9,6 @@ import locale
 import os
 import sys
 
-# On Windows, Ansible requires the interpreter to run in UTF-8 mode (PEP 540) for correct
-# stdio/filesystem/locale handling (the legacy ANSI code page is otherwise used for e.g. open()).
-# Rather than make users set PYTHONUTF8=1 manually, transparently re-exec the same command once with
-# UTF-8 mode enabled if it isn't already. The guard env var prevents an infinite re-exec loop.
-if os.name == 'nt' and not sys.flags.utf8_mode and os.environ.get('_ANSIBLE_UTF8_REEXEC') != '1':
-    import subprocess
-    # Re-run the same command with the current interpreter (sys.executable resolves to the active
-    # venv/python; sys.orig_argv[0] may be a non-venv base python under a console-script launcher).
-    # sys.orig_argv[1:] preserves any interpreter flags plus the -m/script and program arguments.
-    _utf8_env = dict(os.environ, _ANSIBLE_UTF8_REEXEC='1', PYTHONUTF8='1')
-    sys.exit(subprocess.run([sys.executable, *sys.orig_argv[1:]], env=_utf8_env).returncode)
-
 # We overload the ``ansible`` adhoc command to provide the functionality for
 # ``SSH_ASKPASS``. This code is here, and not in ``adhoc.py`` to bypass
 # unnecessary code. The program provided to ``SSH_ASKPASS`` can only be invoked
@@ -55,14 +43,7 @@ def check_blocking_io():
         except Exception:
             continue  # not a real file handle, such as during the import sanity test
 
-        try:
-            blocking = os.get_blocking(fd)
-        except OSError:
-            # os.get_blocking is not meaningful for every handle type on all platforms
-            # (e.g. Windows console/pipe handles raise here); treat those as blocking.
-            continue
-
-        if not blocking:
+        if not os.get_blocking(fd):
             handles.append(getattr(handle, 'name', None) or '#%s' % fd)
 
     if handles:
@@ -85,15 +66,7 @@ def initialize_locale():
             'ERROR: Ansible could not initialize the preferred locale: %s' % e
         )
 
-    # On Windows the process text encoding is governed by UTF-8 mode rather than the
-    # legacy ANSI code page reported by the locale, so honor utf8_mode there.
-    if os.name == 'nt' and sys.flags.utf8_mode:
-        encoding = 'utf-8'
-
     if not encoding or encoding.lower() not in ('utf-8', 'utf8'):
-        if os.name == 'nt':
-            raise SystemExit('ERROR: Ansible requires UTF-8 mode on Windows; set PYTHONUTF8=1 or pass -X utf8. '
-                             'Detected locale encoding: %s.' % encoding)
         raise SystemExit('ERROR: Ansible requires the locale encoding to be UTF-8; Detected %s.' % encoding)
 
     fs_enc = sys.getfilesystemencoding()
@@ -541,19 +514,17 @@ class CLI(ABC):
             p = subprocess.Popen('less --version', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             p.communicate()
             if p.returncode == 0:
-                CLI.pager_pipe(text, pager='less')
+                CLI.pager_pipe(text, 'less')
             else:
                 display.display(text, screen_only=True)
 
     @staticmethod
-    def pager_pipe(text, pager=None):
+    def pager_pipe(text):
         """ pipe text through a pager """
-        pager_cmd = pager or CLI.PAGER
-
-        if 'less' in pager_cmd:
+        if 'less' in CLI.PAGER:
             os.environ['LESS'] = CLI.LESS_OPTS
         try:
-            cmd = subprocess.Popen(pager_cmd, shell=True, stdin=subprocess.PIPE, stdout=sys.stdout)
+            cmd = subprocess.Popen(CLI.PAGER, shell=True, stdin=subprocess.PIPE, stdout=sys.stdout)
             cmd.communicate(input=to_bytes(text))
         except (OSError, KeyboardInterrupt):
             pass
