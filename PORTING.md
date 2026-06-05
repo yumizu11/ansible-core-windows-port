@@ -265,6 +265,31 @@ content is copied in), since a Windows checkout cannot follow symlinks at runtim
 ships `.cmd` launchers for Windows.) When detecting these, match both `../foo` *and* bare
 `sibling.py` whose content resolves to an existing file in the same directory.
 
+### N. `ansible-galaxy`: collection install on Windows
+
+Distinct from §M (which is about the repo's *own* symlinks): some published collections ship
+**internal symlinks inside their tarball** (e.g. `amazon.aws` has `docs/docsite/rst/CHANGELOG.rst` →
+`../../../CHANGELOG.rst`). `galaxy/collection/__init__.py`'s extractor recreated them with
+`os.symlink`, which on Windows needs `SeCreateSymbolicLinkPrivilege` (Developer Mode / elevation) and
+otherwise raises `OSError` WinError 1314 ("A required privilege is not held by the client"), aborting
+the whole install.
+
+* `galaxy/collection/__init__.py` — added `_symlink_or_materialize(tar, member, b_link, b_dest)`,
+  called from both `_extract_tar_dir` and `_extract_tar_file`. It tries `os.symlink`; **only on
+  Windows**, if that fails, it resolves the (relative, POSIX) link target to its tar member and
+  **copies that member's content** to the destination (following symlink chains, with a hop limit).
+  A directory link, or a target missing from the tar, falls back to creating a real directory. POSIX
+  is unchanged (the symlink is created and the helper returns). This lets collections with internal
+  links install without elevated privileges — important for redistribution.
+* `galaxy/api.py` — `_load_cache` rejected the API cache when `os.stat(...).st_mode & S_IWOTH`
+  ("world writable"). That is a POSIX concept; on Windows `os.stat` copies the owner bits to
+  group/other, so ordinary files spuriously trip it and the cache is disabled (noisy warning + slower
+  galaxy calls). Guarded the check with `os.name != 'nt'`.
+
+> Limitation: a collection that ships a *directory* symlink will get a real (empty) directory on
+> Windows rather than a copied subtree — none of the common collections do this, and file links (the
+> usual case: changelogs/licenses/docs) are materialized correctly.
+
 ---
 
 ## 4. Re-porting checklist for a future Ansible version

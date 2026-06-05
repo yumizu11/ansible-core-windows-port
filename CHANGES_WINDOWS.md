@@ -27,6 +27,8 @@ Provided to satisfy the GPL requirement to state the changes made to the license
 | `constants.py` | `import os`; add `_pathlist()` helper for platform-aware path-list defaults | E |
 | `config/base.yml` | ~20 path-list defaults routed through `_pathlist(...)` | E |
 | `_internal/_locking.py` | `named_mutex` uses `msvcrt.locking` on Windows / `fcntl.flock` on POSIX | L |
+| `galaxy/collection/__init__.py` | On Windows, materialize a collection's internal symlinks (copy the link target's content out of the tar) when `os.symlink` can't be created (WinError 1314) — installs collections like `amazon.aws` without Developer Mode/elevation | N |
+| `galaxy/api.py` | Skip the POSIX "world writable" cache check on Windows (`os.stat` copies owner bits to other → false positive, disabling the API cache) | N |
 | `_internal/_templating/_template_vars.py` | Guard `pwd` (uid fallback); `platform.node()` for the template host | A |
 | `_internal/_datatag/_tags.py` | `Origin` absolute-path check via `os.path.isabs` | D |
 | `utils/collection_loader/_collection_finder.py` | `get_data` absolute-path check via `os.path.isabs` | D |

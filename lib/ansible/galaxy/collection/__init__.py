@@ -12,6 +12,7 @@ import inspect
 import json
 import os
 import pathlib
+import posixpath
 import queue
 import re
 import shutil
@@ -1673,6 +1674,52 @@ def install_src(collection, b_collection_path, b_collection_output_path, artifac
     )
 
 
+def _symlink_or_materialize(tar, member_name, b_link_path, b_dest_path):
+    """Create the symlink for an extracted collection member.
+
+    On platforms/filesystems where symlinks cannot be created -- notably Windows without the
+    ``SeCreateSymbolicLinkPrivilege`` (i.e. no Developer Mode and not elevated), where ``os.symlink``
+    raises ``OSError`` WinError 1314 -- materialize the link instead by copying the target's content
+    out of the tar, so collections that ship internal symlinks (e.g. ``amazon.aws``) still install
+    and are usable without elevated privileges. POSIX behavior is unchanged: the symlink is created
+    and the function returns immediately.
+    """
+    try:
+        os.symlink(b_link_path, b_dest_path)
+        return
+    except OSError:
+        if os.name != 'nt':
+            raise
+
+    n_link = to_native(b_link_path, errors='surrogate_or_strict').replace('\\', '/')
+    n_member = to_native(member_name, errors='surrogate_or_strict').replace('\\', '/')
+    n_target = posixpath.normpath(posixpath.join(posixpath.dirname(n_member), n_link))
+    display.vvv("Cannot create symlink '%s' -> '%s' on this platform; copying the target's content "
+                "instead." % (to_native(b_dest_path, errors='surrogate_or_strict'), n_link))
+
+    target_member = None
+    for _dummy in range(8):  # follow symlink chains within the collection, with a hop limit
+        try:
+            target_member = tar.getmember(n_target)
+        except KeyError:
+            target_member = None
+            break
+        if target_member.issym():
+            n_target = posixpath.normpath(posixpath.join(posixpath.dirname(n_target), target_member.linkname))
+            continue
+        break
+
+    if target_member is not None and target_member.isfile():
+        with _tarfile_extract(tar, target_member) as (dummy, tgt_obj):
+            with open(b_dest_path, 'wb') as dst_obj:
+                shutil.copyfileobj(tgt_obj, dst_obj)
+        os.chmod(b_dest_path, S_IRWU_RG_RO)
+    else:
+        # Directory link, or target not present as a regular file in the tar: create a real
+        # directory so the collection layout stays intact and extraction can continue.
+        os.makedirs(b_dest_path, mode=S_IRWXU_RXG_RXO, exist_ok=True)
+
+
 def _extract_tar_dir(tar, dirname, b_dest):
     """ Extracts a directory from a collection tar. """
     dirname = to_native(dirname, errors='surrogate_or_strict')
@@ -1693,7 +1740,7 @@ def _extract_tar_dir(tar, dirname, b_dest):
             raise AnsibleError("Cannot extract symlink '%s' in collection: path points to location outside of "
                                "collection '%s'" % (to_native(dirname), b_link_path))
 
-        os.symlink(b_link_path, b_dir_path)
+        _symlink_or_materialize(tar, dirname, b_link_path, b_dir_path)
 
     else:
         if not os.path.isdir(b_dir_path):
@@ -1731,7 +1778,7 @@ def _extract_tar_file(tar, filename, b_dest, b_temp_path, expected_hash=None):
                 raise AnsibleError("Cannot extract symlink '%s' in collection: path points to location outside of "
                                    "collection '%s'" % (to_native(filename), b_link_path))
 
-            os.symlink(b_link_path, b_dest_filepath)
+            _symlink_or_materialize(tar, filename, b_link_path, b_dest_filepath)
 
         else:
             shutil.move(to_bytes(tmpfile_obj.name, errors='surrogate_or_strict'), b_dest_filepath)

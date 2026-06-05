@@ -262,6 +262,30 @@ raw モード＋非ブロッキング fd 読み取りを使っていました。
 `.cmd` ランチャも同梱。）検出時は `../foo` だけでなく、同ディレクトリの既存ファイルに解決される素の
 `sibling.py` も対象にすること。
 
+### N. `ansible-galaxy`: Windows でのコレクションインストール
+
+§M（リポジトリ*自身*のシンボリックリンク）とは別物で、一部の公開コレクションは**tarball 内部に
+シンボリックリンク**を含みます（例：`amazon.aws` の `docs/docsite/rst/CHANGELOG.rst` →
+`../../../CHANGELOG.rst`）。`galaxy/collection/__init__.py` の展開処理はこれを `os.symlink` で再現
+しますが、Windows では作成に `SeCreateSymbolicLinkPrivilege`（開発者モード/昇格）が必要で、無ければ
+`OSError` WinError 1314（"A required privilege is not held by the client"）でインストール全体が中断
+していました。
+
+* `galaxy/collection/__init__.py` — `_symlink_or_materialize(tar, member, b_link, b_dest)` を追加し、
+  `_extract_tar_dir`/`_extract_tar_file` の両方から呼び出し。まず `os.symlink` を試し、**Windows で
+  失敗した場合のみ**、相対（POSIX）リンク先を tar メンバに解決し**その内容を実ファイルとしてコピー**
+  （リンクの連鎖も上限付きで追従）。ディレクトリリンクや tar に存在しないターゲットは実ディレクトリ
+  作成にフォールバック。POSIX は不変（シンボリックリンクを作成して即 return）。これにより内部リンクを
+  含むコレクションも特権なしでインストール可能になります（再配布で重要）。
+* `galaxy/api.py` — `_load_cache` が `os.stat(...).st_mode & S_IWOTH`（"other 書き込み可"）で API
+  キャッシュを拒否していました。これは POSIX の概念で、Windows では `os.stat` が所有者ビットを
+  group/other に複製するため通常ファイルでも誤検知し、キャッシュ無効化＋警告が出ていました。
+  `os.name != 'nt'` でガード。
+
+> 制限: *ディレクトリ*のシンボリックリンクを含むコレクションは、Windows では空の実ディレクトリになり
+> ます（サブツリーはコピーされない）。一般的なコレクションはこれを行わず、ファイルリンク（通常の
+> ケース：CHANGELOG/ライセンス/ドキュメント）は正しく実体化されます。
+
 ---
 
 ## 4. 将来バージョン移植のチェックリスト

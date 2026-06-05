@@ -154,8 +154,10 @@ def _load_cache(b_cache_path):
         with open(b_cache_path, 'w'):
             os.chmod(b_cache_path, 0o600)
 
+    # The world-writable check is a POSIX permission concept; on Windows os.stat copies the owner
+    # bits to group/other, so ordinary files spuriously appear world-writable. Skip it there.
     cache_mode = os.stat(b_cache_path).st_mode
-    if cache_mode & stat.S_IWOTH:
+    if os.name != 'nt' and cache_mode & stat.S_IWOTH:
         display.warning("Galaxy cache has world writable access (%s), ignoring it as a cache source."
                         % to_text(b_cache_path))
         return
