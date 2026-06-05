@@ -4,6 +4,13 @@
 
 **English: [README.md](README.md)**
 
+> ⚠️ **注意: `main` ブランチは ansible-core の `devel` を追跡しています。**
+> `main` は upstream の `devel` ブランチの**ある時点のスナップショット**（現在は `2.22.0.dev0`）を
+> 基にした Windows ネイティブ移植です。`devel` は未リリースで頻繁に変化するため、本ブランチは最新の
+> upstream と乖離する可能性があり、**不具合や誤動作を含む場合があります**。動作検証済みの安定版が
+> 必要な場合は、リリースブランチ（例: **[`stable-2.21`](../../tree/stable-2.21)**）とその Windows
+> リリースパッケージを使用してください。
+
 本リポジトリは [ansible-core](https://github.com/ansible/ansible) の**非公式フォーク**で、
 **Ansible コントローラを Windows 上でネイティブに動作**させるよう改変したものです。WSL・Cygwin・
 Linux VM を使わず、Windows マシン上で直接 `ansible-playbook`（および他の CLI）を実行できます。
