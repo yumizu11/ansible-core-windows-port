@@ -4,6 +4,13 @@
 
 **日本語版: [README_JP.md](README_JP.md)**
 
+> ⚠️ **Heads-up: the `main` branch tracks ansible-core `devel`.**
+> `main` is a native-Windows port built on a **point-in-time snapshot of the upstream `devel`
+> branch** (currently `2.22.0.dev0`). `devel` is unreleased and changes constantly, so this branch
+> can drift from current upstream and **may contain bugs or behave incorrectly**. For a tested,
+> stable build, use a release branch instead — e.g. **[`stable-2.21`](../../tree/stable-2.21)** and
+> its Windows release packages.
+
 This repository is an **unofficial fork** of [ansible-core](https://github.com/ansible/ansible)
 modified so that the **Ansible controller runs natively on Windows** — i.e. you can run
 `ansible-playbook` (and the other CLIs) directly on a Windows machine, with no WSL, Cygwin, or
