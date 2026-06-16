@@ -191,6 +191,18 @@ subprocess. Windows cannot `select` on pipes, has no `fcntl`/`pty`.
   element, so the wrapping quotes are unnecessary here. (Latent in the 2.22 port too; it only bites
   once a key is supplied via `ansible_ssh_private_key_file`/`remote_user`, which is why it surfaced
   here.)
+* **`sftp` file transfer from a Windows controller.** `_file_transport_command`'s `sftp` branch
+  feeds `put <local> <remote>` (or `get`) to `sftp -b -` on stdin. The *local* (controller) path is a
+  Windows path with backslashes (`C:\Users\…`), and sftp's batch-command parser treats `\` as an
+  escape, so the path is silently mangled (`stat C:Usersyumizu…: No such file or directory`). Every
+  sftp transfer then failed and the connection fell back to `scp` — which works (scp gets the path as
+  a direct argv element, not through sftp's parser), but emits
+  `sftp transfer mechanism failed on <host>` and adds a wasted round-trip on **every** task. Fixed by
+  normalizing only the local side of the transfer (`put` source / `get` destination) to forward
+  slashes when `os.name == 'nt'` before `shlex.quote`; Windows OpenSSH sftp accepts `C:/Users/…`. The
+  pre-existing `_escape_win_path` helper only covered the inverse case (the *remote* target being
+  Windows), so the Windows-*controller* case was unhandled. (Found while running the expanded test
+  suite — verified with `ANSIBLE_SSH_TRANSFER_METHOD=sftp`, which now succeeds instead of erroring.)
 * Uses the built-in Windows OpenSSH (`ssh.exe`/`sftp.exe`/`scp.exe`).
 
 ### H. AnsiballZ packaging (the subtle one)
@@ -285,6 +297,14 @@ the whole install.
   ("world writable"). That is a POSIX concept; on Windows `os.stat` copies the owner bits to
   group/other, so ordinary files spuriously trip it and the cache is disabled (noisy warning + slower
   galaxy calls). Guarded the check with `os.name != 'nt'`.
+* `config/manager.py` — **the very same `S_IWOTH` false-positive** bites config-file discovery:
+  `find_ini_config_file` skips a project-local `./ansible.cfg` when the current working directory looks
+  world-writable. On Windows every directory trips this (owner write bit copied to "other"), so a
+  project `ansible.cfg` is silently ignored — `ansible --version` reports `config file = None` and
+  prints *"Ansible is being run in a world writable directory … ignoring it as an ansible.cfg source."*
+  Guarded with `os.name != 'nt'` so a project-local `ansible.cfg` is honored on Windows. (Found while
+  running the expanded test suite, where a project `ansible.cfg` is the natural way to set `inventory`,
+  `host_key_checking`, and `interpreter_python`.)
 
 > Limitation: a collection that ships a *directory* symlink will get a real (empty) directory on
 > Windows rather than a copied subtree — none of the common collections do this, and file links (the

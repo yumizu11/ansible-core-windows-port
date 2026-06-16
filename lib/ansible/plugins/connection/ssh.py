@@ -1574,7 +1574,20 @@ class Connection(ConnectionBase):
             match method:
                 case 'sftp':
                     cmd = self._build_command(self.get_option('sftp_executable'), method, to_bytes(host))
-                    in_data = f"{sftp_action} {shlex.quote(in_path)} {shlex.quote(out_path)}\n"
+                    # On a Windows controller the local path uses backslashes (e.g.
+                    # C:\Users\...). sftp's batch-command parser treats backslashes as
+                    # escape characters, so the local path is mangled ("No such file or
+                    # directory") and every sftp transfer falls back to scp. Windows
+                    # OpenSSH sftp accepts forward-slash local paths, so normalize the
+                    # local side ('put' source / 'get' destination) before quoting. The
+                    # remote side is always POSIX here and is left untouched.
+                    sftp_in_path, sftp_out_path = in_path, out_path
+                    if os.name == 'nt':
+                        if sftp_action == 'put':
+                            sftp_in_path = in_path.replace('\\', '/')
+                        else:
+                            sftp_out_path = out_path.replace('\\', '/')
+                    in_data = f"{sftp_action} {shlex.quote(sftp_in_path)} {shlex.quote(sftp_out_path)}\n"
                     in_data = to_bytes(in_data, nonstring='passthru')
                     (returncode, stdout, stderr) = self._bare_run(cmd, in_data, checkrc=False)
                 case 'scp':

@@ -25,12 +25,20 @@ Windows コントローラ（Windows 11 + CPython 3.12）で end-to-end 検証�
 | 接続方式 | 管理対象 | モジュール | 検証環境 |
 |---|---|---|---|
 | `local` | Windows ホスト自身 | PowerShell (`ansible.windows.win_*`) | ローカルマシン |
-| `ssh` | リモート **Linux** | Python (`ping`/`command`/`setup`/`copy` 等) | AWS EC2 (RHEL 9) |
+| `ssh` | リモート **Linux** | Python (`ping`/`command`/`setup`/`copy` 等) | AWS EC2 (RHEL 9.6) |
 | `winrm` | リモート **Windows** | PowerShell | Windows Server 2025 (HTTPS) |
 | `psrp` | リモート **Windows** | PowerShell | Windows Server 2025 (HTTPS) |
 
-その他: ファクト収集、ファイル転送（sftp/scp および PowerShell copy）、冪等性、パスワード不要な
-`become`(sudo) over SSH、対話プロンプト（`vars_prompt`/`pause`/`--ask-*`）、および CLI 一式
+両ターゲットに対し広範なモジュール群でエンドツーエンド検証済み: Linux では `file`/`copy`/`template`/
+`lineinfile`/`blockinfile`/`replace`/`user`/`group`/`dnf`/`service`/`cron`/`get_url`/`uri`/`archive`/
+`unarchive`/`find`/`stat` に加えハンドラ・ブロック（`block`/`rescue`/`always`）・ループ、Windows では
+対応する `ansible.windows`／`community.windows` モジュール（`win_file`/`win_copy`/`win_template`/
+`win_lineinfile`/`win_user`/`win_group`/`win_regedit`/`win_environment`/`win_service`/`win_get_url`/
+`win_acl`/`win_owner`/`win_find`/`win_tempfile`/`win_powershell`）。
+
+その他: ファクト収集、ファイル転送（Windows コントローラからのネイティブ **sftp** と scp、および
+PowerShell copy）、冪等性、パスワード不要な `become`(sudo) over SSH、対話プロンプト
+（`vars_prompt`/`pause`/`--ask-*`）、プロジェクトローカルの `ansible.cfg`、および CLI 一式
 （`ansible` / `ansible-playbook` / `ansible-doc` / `ansible-config` / `ansible-inventory` /
 `ansible-vault` / `ansible-galaxy`）も動作します。
 

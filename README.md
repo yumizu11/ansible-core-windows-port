@@ -26,14 +26,22 @@ Verified end-to-end on a Windows controller (Windows 11 + CPython 3.12):
 | Connection | Target managed | Modules | Verified against |
 |---|---|---|---|
 | `local` | the Windows host itself | PowerShell (`ansible.windows.win_*`) | local machine |
-| `ssh` | remote **Linux** | Python (`ping`, `command`, `setup`, `copy`, …) | AWS EC2 (RHEL 9) |
+| `ssh` | remote **Linux** | Python (`ping`, `command`, `setup`, `copy`, …) | AWS EC2 (RHEL 9.6) |
 | `winrm` | remote **Windows** | PowerShell | Windows Server 2025 (HTTPS) |
 | `psrp` | remote **Windows** | PowerShell | Windows Server 2025 (HTTPS) |
 
-Also working: fact gathering, file transfer (sftp/scp and PowerShell copy), idempotency,
-passwordless `become` (sudo) over SSH, interactive prompts (`vars_prompt`, `pause`, `--ask-*`),
-and the CLIs `ansible`, `ansible-playbook`, `ansible-doc`, `ansible-config`, `ansible-inventory`,
-`ansible-vault`, and `ansible-galaxy`.
+Exercised end-to-end with a broad module suite on both targets: on Linux `file`/`copy`/`template`/
+`lineinfile`/`blockinfile`/`replace`/`user`/`group`/`dnf`/`service`/`cron`/`get_url`/`uri`/`archive`/
+`unarchive`/`find`/`stat` plus handlers, blocks (`block`/`rescue`/`always`) and loops; on Windows the
+equivalent `ansible.windows`/`community.windows` modules (`win_file`/`win_copy`/`win_template`/
+`win_lineinfile`/`win_user`/`win_group`/`win_regedit`/`win_environment`/`win_service`/`win_get_url`/
+`win_acl`/`win_owner`/`win_find`/`win_tempfile`/`win_powershell`).
+
+Also working: fact gathering, file transfer (native **sftp** and scp from the Windows controller, plus
+PowerShell copy), idempotency, passwordless `become` (sudo) over SSH, interactive prompts
+(`vars_prompt`, `pause`, `--ask-*`), a project-local `ansible.cfg`, and the CLIs `ansible`,
+`ansible-playbook`, `ansible-doc`, `ansible-config`, `ansible-inventory`, `ansible-vault`, and
+`ansible-galaxy`.
 
 See **[PORTING.md](PORTING.md)** for the full technical write-up of every change (and a guide for
 re-porting future Ansible versions). A flat list of modified files is in

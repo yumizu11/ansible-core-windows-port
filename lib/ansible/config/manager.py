@@ -276,7 +276,11 @@ def find_ini_config_file(warnings=None):
         cwd = os.getcwd()
         perms = os.stat(cwd)
         cwd_cfg = os.path.join(cwd, "ansible.cfg")
-        if perms.st_mode & stat.S_IWOTH:
+        # On Windows the POSIX "other" permission bits don't carry the same meaning;
+        # os.stat copies the owner bits onto group/other, so an ordinary directory looks
+        # world writable and a project-local ansible.cfg would be wrongly ignored. Skip
+        # the world-writable check on Windows (mirrors galaxy/api.py cache handling).
+        if os.name != 'nt' and perms.st_mode & stat.S_IWOTH:
             # Working directory is world writable so we'll skip it.
             # Still have to look for a file here, though, so that we know if we have to warn
             if os.path.exists(cwd_cfg):

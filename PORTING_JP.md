@@ -187,6 +187,16 @@ Windows コントローラではローカルホストに対するモジュール
   リモートコマンドが不正な `-c` 暗号方式として誤認されます（`Unknown cipher type 'echo …'`）。各値は
   単一の argv 要素なのでここでの引用符は不要です。（2.22 ポートにも潜在。`ansible_ssh_private_key_file`
   ／`remote_user` 指定時に初めて顕在化するため、ここで判明しました。）
+* **Windows コントローラからの `sftp` ファイル転送。** `_file_transport_command` の `sftp` 分岐は
+  `put <ローカル> <リモート>` を `sftp -b -` の標準入力に渡します。*ローカル*（コントローラ）側は
+  バックスラッシュ区切りの Windows パス（`C:\Users\…`）ですが、sftp のバッチコマンド解析は `\` を
+  エスケープ扱いするためパスが壊れます（`stat C:Usersyumizu…: No such file or directory`）。結果として
+  sftp 転送は毎回失敗し `scp` にフォールバック（scp は引数として直接渡るため動作するが、
+  `sftp transfer mechanism failed on <host>` 警告と無駄な往復が**毎タスク**発生）。修正として
+  `os.name == 'nt'` のとき転送のローカル側のみ（`put` の送信元／`get` の保存先）を `shlex.quote` 前に
+  スラッシュへ正規化（Windows OpenSSH sftp は `C:/Users/…` を受理）。既存の `_escape_win_path` は逆の
+  ケース（*リモート*が Windows）専用で、Windows *コントローラ*側は未対応でした。（拡張テストスイート
+  実行中に発見。`ANSIBLE_SSH_TRANSFER_METHOD=sftp` で検証し、エラーせず成功するようになりました。）
 * Windows 標準 OpenSSH（`ssh.exe`/`sftp.exe`/`scp.exe`）を使用。
 
 ### H. AnsiballZ のパッケージング（核心）
@@ -281,6 +291,14 @@ raw モード＋非ブロッキング fd 読み取りを使っていました。
   キャッシュを拒否していました。これは POSIX の概念で、Windows では `os.stat` が所有者ビットを
   group/other に複製するため通常ファイルでも誤検知し、キャッシュ無効化＋警告が出ていました。
   `os.name != 'nt'` でガード。
+* `config/manager.py` — **同じ `S_IWOTH` 誤検知**が設定ファイル探索でも発生します。
+  `find_ini_config_file` はカレントディレクトリが world-writable に見えるとプロジェクトローカルの
+  `./ansible.cfg` をスキップしますが、Windows では全ディレクトリが該当（所有者書き込みビットが other に
+  複製される）するため `ansible.cfg` が無視され、`ansible --version` は `config file = None` と表示し
+  *「Ansible is being run in a world writable directory … ignoring it as an ansible.cfg source」* と
+  警告します。`os.name != 'nt'` でガードし、Windows でもプロジェクトローカルの `ansible.cfg` を
+  尊重するようにしました。（拡張テストスイート実行中に発見。`inventory`／`host_key_checking`／
+  `interpreter_python` をプロジェクト `ansible.cfg` で設定するのが自然なため。）
 
 > 制限: *ディレクトリ*のシンボリックリンクを含むコレクションは、Windows では空の実ディレクトリになり
 > ます（サブツリーはコピーされない）。一般的なコレクションはこれを行わず、ファイルリンク（通常の
